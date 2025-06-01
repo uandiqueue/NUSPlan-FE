@@ -47,7 +47,7 @@ export default function App() {
     }
     for (const minor of minors) {
       if (minor) {
-        programmes.push({ name: minor, type: "minor" });
+        programmes.push({ name: minor.value, type: "minor" });
       }
     }
 
