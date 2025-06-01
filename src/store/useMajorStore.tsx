@@ -25,8 +25,6 @@ export const useMajorStore = create<MajorStore>()((set, get) => ({
   majorList: [
     "Computer Science",
     "Business Analytics",
-    "Information Systems",
-    "Information Security",
     "Life Sciences",
   ],
   primaryMajor: "",
