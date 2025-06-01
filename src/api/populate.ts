@@ -36,7 +36,7 @@ type ModuleTitle = string;
 
 // API to backend to populate programs based on user selections
 export async function populateModules(payload: Programme[]): Promise<PopulateResponse[]> {
-    const res = await fetch("http://localhost:3000/api/populate", {
+    const res = await fetch("http://localhost:4000/api/populate/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
