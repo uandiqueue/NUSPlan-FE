@@ -7,6 +7,10 @@ import InputMinor from "./components/InputMinor";
 import AddSecondary from "./components/AddSecondary";
 import AddMinor from "./components/AddMinor";
 
+import { populateModules } from "./api/populate";
+import type { Programme } from "./api/populate";
+
+
 export default function App() {
   const { primaryMajor, secondaryMajor, minors, addMinor, resetAll } =
     useMajorStore();
@@ -18,7 +22,7 @@ export default function App() {
     setErrorMessage,
   } = useUIStore();
 
-  const handleExplore = () => {
+  const handleExplore = async () => {
     if (!primaryMajor) {
       setErrorMessage("Please select a primary major.");
       return;
@@ -32,7 +36,25 @@ export default function App() {
       setErrorMessage("You have not selected your minor.");
       return;
     }
-    console.log({ primaryMajor, secondaryMajor, minors });
+
+    // Prepare the payload for the API
+    const programmes: Programme[] = [];
+    if (primaryMajor) {
+      programmes.push({ name: primaryMajor, type: "major" });
+    }
+    if (secondaryMajor) {
+      programmes.push({ name: secondaryMajor, type: "secondMajor" });
+    }
+    for (const minor of minors) {
+      if (minor) {
+        programmes.push({ name: minor.value, type: "minor" });
+      }
+    }
+
+    // Sending the payload to the backend
+    const result = await populateModules(programmes);
+    // result is now typed as PopulateResponse[]
+    console.log(result);
   };
 
   return (
