@@ -4,10 +4,10 @@
   ],
   "compilerOptions": {
     "moduleResolution": "node",
-    "target": "es2016",
+    "target": "ES2020",
     "lib": [
       "dom",
-      "es2016"
+      "ESNext",
     ],
     "jsx": "react-jsx",
     "esModuleInterop": true,
@@ -16,7 +16,7 @@
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "module": "esnext",
+    "module": "ESNext",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true
