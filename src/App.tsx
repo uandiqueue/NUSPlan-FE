@@ -8,7 +8,7 @@ import AddSecondary from "./components/AddSecondary";
 import AddMinor from "./components/AddMinor";
 
 import { populateModules } from "./api/populate";
-import type { Programme } from "./api/populate";
+import type { Programme } from "./types/populator";
 
 
 export default function App() {
@@ -53,7 +53,7 @@ export default function App() {
 
     // Sending the payload to the backend
     const result = await populateModules(programmes);
-    // result is now typed as PopulateResponse[]
+    // result is now typed as PopulatedProgramPayload[]
     console.log(result);
   };
 
