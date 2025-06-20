@@ -1,9 +1,9 @@
 import { usePlanner } from '../hooks/usePlanner';
-import type { Box, Course } from '../app/types/payload';
+import type { CourseBox, CourseInfo } from '../types/shared/populator';
 
-export function BoxRenderer({ box }: { box: Box }) {
+export function BoxRenderer({ box }: { box: CourseBox }) {
   const { chosen, toggle, canPick } = usePlanner();
-  const isPicked = (c: Course) =>
+  const isPicked = (c: CourseInfo) =>
     chosen.some((sel) => sel.courseCode === c.courseCode);
 
   switch (box.kind) {

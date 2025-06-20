@@ -1,6 +1,6 @@
 import { useContext } from 'react';
 import { Box, Button, Typography, Divider, useTheme, useMediaQuery, } from '@mui/material';
-import { PayloadContext } from '../app/context/payloadContext';
+import { PayloadContext } from '../context/payloadContext';
 import { RequirementBlock } from '../components/requirementBlock';
 import { ProgressGraph } from '../components/progressGraph';
 

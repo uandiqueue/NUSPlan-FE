@@ -7,9 +7,9 @@ import InputSecondaryMajor from "./components/InputSecondaryMajor";
 import InputMinor from "./components/InputMinor";
 import AddSecondary from "./components/AddSecondary";
 import AddMinor from "./components/AddMinor";
-import { populateModules, Programme } from "./api/populate";
-import type { PopulatedPayload } from "./app/types/payload";
-import { PayloadProvider } from "./app/context/payloadContext";
+import { populateModules } from "./api/populate";
+import type { PopulatedProgramPayload, Programme } from "./types/shared/populator";
+import { PayloadProvider } from "./context/payloadContext";
 import PlannerPage from "./pages/PlannerPage";
 
 export default function App() {
@@ -22,7 +22,7 @@ export default function App() {
     setErrorMessage,
   } = useUIStore();
 
-  const [payload, setPayload] = useState<PopulatedPayload | null>(null);
+  const [payload, setPayload] = useState<PopulatedProgramPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const handleExplore = async () => {
     if (!primaryMajor) {
@@ -49,7 +49,7 @@ export default function App() {
       setLoading(true);
       console.log(programmes);
       const res = await populateModules(programmes);
-      const inner = res[0]?.populatedPayload;
+      const inner = res[0];
       if (inner) setPayload(inner);
       else setErrorMessage("Backend returned no payload.");
 

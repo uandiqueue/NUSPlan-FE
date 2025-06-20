@@ -1,8 +1,8 @@
-import { RequirementBlock as Block } from '../app/types/payload';
+import { RequirementSection } from '../types/shared/populator';
 import { BoxRenderer } from './boxRenderer';
 import { usePlanner } from '../hooks/usePlanner';
 
-export function RequirementBlock({ block }: { block: Block }) {
+export function RequirementBlock({ block }: { block: RequirementSection }) {
   const { progress } = usePlanner();
   const earned = progress[block.requirementKey] ?? 0;
 
