@@ -1,4 +1,5 @@
-import { Box, Typography, Button, Snackbar } from "@mui/material";
+import { useState } from "react";
+import { Box, Typography, Button, Snackbar, CircularProgress } from "@mui/material";
 import { useMajorStore } from "./store/useMajorStore";
 import { useUIStore } from "./store/useUIStore";
 import InputPrimaryMajor from "./components/InputPrimaryMajor";
@@ -6,15 +7,14 @@ import InputSecondaryMajor from "./components/InputSecondaryMajor";
 import InputMinor from "./components/InputMinor";
 import AddSecondary from "./components/AddSecondary";
 import AddMinor from "./components/AddMinor";
-
-import { populateModules } from "./api/populate";
-import type { Programme } from "./api/populate";
-
+import { populateModules, Programme } from "./api/populate";
+import type { PopulatedPayload } from "./app/types/payload";
+import { PayloadProvider } from "./app/context/payloadContext";
+import PlannerPage from "./pages/PlannerPage";
 
 export default function App() {
   const { primaryMajor, secondaryMajor, minors, addMinor, resetAll } =
     useMajorStore();
-
   const {
     showSecondarySelect,
     setShowSecondarySelect,
@@ -22,6 +22,8 @@ export default function App() {
     setErrorMessage,
   } = useUIStore();
 
+  const [payload, setPayload] = useState<PopulatedPayload | null>(null);
+  const [loading, setLoading] = useState(false);
   const handleExplore = async () => {
     if (!primaryMajor) {
       setErrorMessage("Please select a primary major.");
@@ -31,48 +33,63 @@ export default function App() {
       setErrorMessage("You have not selected your secondary major.");
       return;
     }
-
-    if (minors.some((m) => !m.value || m.value.trim() === "")) {
+    if (minors.some((m) => !m.value?.trim())) {
       setErrorMessage("You have not selected your minor.");
       return;
     }
 
-    // Prepare the payload for the API
     const programmes: Programme[] = [];
-    if (primaryMajor) {
-      programmes.push({ name: primaryMajor, type: "major" });
-    }
-    if (secondaryMajor) {
-      programmes.push({ name: secondaryMajor, type: "secondMajor" });
-    }
-    for (const minor of minors) {
-      if (minor) {
-        programmes.push({ name: minor.value, type: "minor" });
-      }
-    }
+    programmes.push({ name: primaryMajor, type: "major" });
+    if (secondaryMajor) programmes.push({ name: secondaryMajor, type: "secondMajor" });
+    minors.forEach((m) =>
+      programmes.push({ name: m.value, type: "minor" })
+    );
 
-    // Sending the payload to the backend
-    const result = await populateModules(programmes);
-    // result is now typed as PopulateResponse[]
-    console.log(result);
+    try {
+      setLoading(true);
+      console.log(programmes);
+      const res = await populateModules(programmes);
+      const inner = res[0]?.populatedPayload;
+      if (inner) setPayload(inner);
+      else setErrorMessage("Backend returned no payload.");
+
+    } catch (err) {
+      setErrorMessage("Failed to fetch modules from backend.");
+    } finally {
+      setLoading(false);
+    }
   };
 
+  if (payload) {
+    return (
+      <PayloadProvider initialPayload={payload}>
+        <PlannerPage
+          onBack={() => {
+            setPayload(null);
+            resetAll();
+            setShowSecondarySelect(false);
+          }}
+        />
+      </PayloadProvider>
+    );
+  }
+
   return (
-    <Box p={4}>
+    <Box p={4} maxWidth={580}>
       <Typography variant="h4" gutterBottom>
         NUSPlan
       </Typography>
 
+      {/* programme selectors */}
       <InputPrimaryMajor />
-
       <InputSecondaryMajor />
-
       <InputMinor />
 
+      {/* action buttons */}
       <Box display="flex" gap={2} mt={2}>
         <AddSecondary />
         <AddMinor />
-        <Button variant="contained" onClick={handleExplore}>
+        <Button variant="contained" onClick={handleExplore} disabled={loading}>
           Explore
         </Button>
         <Button
@@ -86,6 +103,14 @@ export default function App() {
         </Button>
       </Box>
 
+      {/* loading spinner */}
+      {loading && (
+        <Box mt={4} display="flex" justifyContent="center">
+          <CircularProgress />
+        </Box>
+      )}
+
+      {/* toast-style error message */}
       <Snackbar
         open={!!errorMessage}
         autoHideDuration={3000}
