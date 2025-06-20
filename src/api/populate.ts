@@ -1,7 +1,7 @@
 import { 
     Programme,
     PopulatedProgramPayload
- } from "../types/populator";
+ } from "../types/shared/populator";
 
 // API to backend to populate programs based on user selections
 export async function populateModules(payload: Programme[]): Promise<PopulatedProgramPayload[]> {
@@ -14,3 +14,4 @@ export async function populateModules(payload: Programme[]): Promise<PopulatedPr
     if (!res.ok) throw new Error("Backend error");
     return res.json();
 }
+
