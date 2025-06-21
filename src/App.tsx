@@ -13,7 +13,7 @@ import { PayloadProvider } from "./context/payloadContext";
 import PlannerPage from "./pages/PlannerPage";
 
 export default function App() {
-  const { primaryMajor, secondaryMajor, minors, addMinor, resetAll } =
+  const { primaryMajor, secondaryMajor, minors, getAllSelected, isDuplicate, resetAll } =
     useMajorStore();
   const {
     showSecondarySelect,
@@ -25,6 +25,14 @@ export default function App() {
   const [payload, setPayload] = useState<PopulatedProgramPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const handleExplore = async () => {
+    const selectedMajors = getAllSelected();
+    for (const major of selectedMajors) {
+      if (isDuplicate(major)) {
+        setErrorMessage("You cannot choose the same major more than once.");
+        return;
+      }
+    }
+
     if (!primaryMajor) {
       setErrorMessage("Please select a primary major.");
       return;
@@ -33,7 +41,7 @@ export default function App() {
       setErrorMessage("You have not selected your secondary major.");
       return;
     }
-    if (minors.some((m) => !m.value?.trim())) {
+    if (minors.some((minor) => !minor?.trim())) {
       setErrorMessage("You have not selected your minor.");
       return;
     }
@@ -41,8 +49,8 @@ export default function App() {
     const programmes: Programme[] = [];
     programmes.push({ name: primaryMajor, type: "major" });
     if (secondaryMajor) programmes.push({ name: secondaryMajor, type: "secondMajor" });
-    minors.forEach((m) =>
-      programmes.push({ name: m.value, type: "minor" })
+    minors.forEach((minor) =>
+      programmes.push({ name: minor, type: "minor" })
     );
 
     try {

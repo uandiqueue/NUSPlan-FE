@@ -1,24 +1,18 @@
 import { create } from "zustand";
 
-export interface MinorEntry {
-  id: number;
-  value: string;
-}
-
 interface MajorStore {
   majorList: string[];
   primaryMajor: string;
   secondaryMajor: string;
-  minors: MinorEntry[];
-  setPrimaryMajor: (val: string) => void;
-  setSecondaryMajor: (val: string) => void;
-  deleteSecondary: () => void;
+  minors: string[];
+  setPrimaryMajor: (major: string) => void;
+  setSecondaryMajor: (major: string) => void;
   addMinor: () => void;
-  updateMinor: (id: number, value: string) => void;
-  deleteMinor: (id: number) => void;
+  updateMinor: (major: string, index: number) => void;
+  deleteMinor: (index: number) => void;
   resetAll: () => void;
   getAllSelected: () => string[];
-  isDuplicate: (val: string) => boolean;
+  isDuplicate: (major: string) => boolean;
 }
 
 export const useMajorStore = create<MajorStore>()((set, get) => ({
@@ -30,20 +24,26 @@ export const useMajorStore = create<MajorStore>()((set, get) => ({
   primaryMajor: "",
   secondaryMajor: "",
   minors: [],
-  setPrimaryMajor: (val) => set({ primaryMajor: val }),
-  setSecondaryMajor: (val) => set({ secondaryMajor: val }),
+  setPrimaryMajor: (major) => set({ primaryMajor: major }),
+  setSecondaryMajor: (major) => set({ secondaryMajor: major }),
+  // For when the Add minor button is clicked
   addMinor: () => {
-    const newMinor = { id: Date.now(), value: "" };
-    set({ minors: [...get().minors, newMinor] });
+    set({ minors: [...get().minors, ""] });
   },
-  deleteSecondary: () => set({ secondaryMajor: "" }),
-  updateMinor: (id, value) =>
+  updateMinor: (major, index) =>
     set({
-      minors: get().minors.map((m) => (m.id === id ? { ...m, value } : m)),
+      minors: [
+        ...get().minors.slice(0, index), // flatten the array
+        major,
+        ...get().minors.slice(index + 1)
+      ]
     }),
-  deleteMinor: (id) =>
+  deleteMinor: (index) =>
     set({
-      minors: get().minors.filter((m) => m.id !== id),
+      minors: [
+        ...get().minors.slice(0, index),
+        ...get().minors.slice(index + 1)
+      ]
     }),
   resetAll: () =>
     set({
@@ -56,12 +56,12 @@ export const useMajorStore = create<MajorStore>()((set, get) => ({
     return [
       primaryMajor ?? "",
       secondaryMajor ?? "",
-      ...minors.map((m) => m.value ?? ""),
+      ...minors.map((major) => major ?? ""),
     ].filter(
       (item): item is string => typeof item === "string" && item.length > 0
     );
   },
-  isDuplicate: (val: string) => {
-    return get().getAllSelected().includes(val);
+  isDuplicate: (major) => {
+    return get().getAllSelected().filter((m) => m === major).length > 1;
   },
 }));

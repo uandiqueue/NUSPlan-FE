@@ -10177,5 +10177,5 @@ yocto-queue@^0.1.0:
 
 zustand@^5.0.5:
   version "5.0.5"
-  resolved "https://registry.npmjs.org/zustand/-/zustand-5.0.5.tgz"
+  resolved "https://registry.yarnpkg.com/zustand/-/zustand-5.0.5.tgz#3e236f6a953142d975336d179bc735d97db17e84"
   integrity sha512-mILtRfKW9xM47hqxGIxCv12gXusoY/xTSHBYApXozR0HmQv299whhBeeAcRy+KrPPybzosvJBCOmVjq6x12fCg==
