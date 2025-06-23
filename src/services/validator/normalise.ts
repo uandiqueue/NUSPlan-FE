@@ -3,19 +3,17 @@ Turn nested Requirement tree into flat lookup maps
 */
 
 import { ModuleCode } from "../../types/shared/nusmods-types";
-import {
-    PopulatedProgramPayload,
-    CourseBox,
-} from "../../types/shared/populator";
-import {
-    UnitMap,
-    PrereqMap,
-    PreclusionMap,
-    TagMap
-} from "../../types/shared/validator";
+import type { PopulatedProgramPayload, CourseBox } from '../../types/shared/populator';
+import type {
+    TagMap, 
+    UnitMap, 
+    PrereqMap, 
+    MaxMap,
+    PreclusionMap } from '../../types/shared/validator';
 import {
     LookupTable,
-    RequirementNodeInfo
+    RequirementNodeInfo,
+    Logic
 } from "../../types/feValidator";
 
 /* 
@@ -23,159 +21,113 @@ Normalise one or more programme payloads.
 Never mutates the original payload objects, just reads them. 
 */
 export function normalisePayload(
-    payloads: PopulatedProgramPayload[]
+    payloads: PopulatedProgramPayload[],
 ): LookupTable {
-    // Maps to return
-    const requiredUnits: Record<string, number> = {};
+    // Containers built
+    const requiredUnits: Record<string, number>  = {};
     const modulesByRequirement: Record<string, ModuleCode[]> = {};
-    const nodeInfo: Record<string, RequirementNodeInfo> = {};
-    const requirementsByModule: TagMap = {};
+    const requirementsByModule: Record<ModuleCode, string[]> = {};
+    const nodeInfo: Record<string, RequirementNodeInfo>  = {};
+
+    // Merge-holders for original backend maps
+    const tags: TagMap = {};
     const units: UnitMap = {};
     const prereqs: PrereqMap = {};
     const preclusions: PreclusionMap = {};
-    
-    // Merge two arrays (uniquely) – used when the same module appears in more than one programme.
-    const mergeArr = <T>(dest: T[] | undefined, src: T[]) =>
-        Array.from(new Set([...(dest ?? []), ...src]));
+    const maxRequirements: MaxMap = {};
+    const selected: ModuleCode[] = [];
+    const version: number = 1;
 
-    // Map moduleCode to requirementKey
-    const linkModule = (key: string, code: ModuleCode) => {
-        modulesByRequirement[key] ??= [];
-        modulesByRequirement[key].push(code);
+    // Helpers
+    const makeKey = (...parts: string[]) => parts.filter(Boolean).join(':');
+    const link = (rk: string, code: ModuleCode) => {
+        (modulesByRequirement[rk] ||= []).push(code);
+        (requirementsByModule[code] ||= []).push(rk);
     };
+    function attach(
+        key: string,
+        parent: string | null,
+        logic: Logic,
+        title: string,
+        nOf?: number,
+    ) {
+        nodeInfo[key] = { logic, parent, children: [], title, ...(nOf ? { nOf } : {}) };
+        if (parent) nodeInfo[parent].children.push(key);
+    }
 
     // Walk through the payloads and create the maps
     for (const payload of payloads) {
-        const progId = payload.metadata.name ?? payload.metadata?.name ?? "programme";
+        const pid = `${payload.metadata.name}-${payload.metadata.type}`;
 
-    /* --------- merge programme-level lookup maps ---------------- */
-    mergeMaps(units, payload.lookup.units);
-    mergeMaps(prereqs, payload.lookup.prereqs);
-    mergeMaps(preclusions, payload.lookup.preclusions);
-    // `tags` (requirementsByModule) is rebuilt anyway, so we skip merge.
+        // Merge backend lookup maps
+        Object.assign(units,       payload.lookup.units);
+        Object.assign(prereqs,     payload.lookup.prereqs);
+        Object.assign(preclusions, payload.lookup.preclusions);
+        Object.assign(tags,        payload.lookup.tags);
+        Object.assign(requiredUnits, payload.lookup.minRequirements);
 
-    /* --------- process requirement sections --------------------- */
-    payload.requirements.forEach((section) => {
-      const secKey = makeKey(progId, [section.group]);
-      nodeInfo[secKey] = {
-        logic: "SECTION",
-        parent: null,
-        children: [],
-        selfKey: secKey,
-        title: section.title ?? section.group,
-      };
-      requiredUnits[secKey] = section.requiredUnits ?? 0;
+        // Top-level UI sections
+        for (const section of payload.requirements) {
+            const secKey = makeKey(pid, section.requirementKey);
+            attach(secKey, null, 'SECTION', section.label);
+            requiredUnits[secKey] ??= section.requiredUnits ?? 0;
 
-      for (const box of section.boxes) {
-        traverseBox(box, [section.group], secKey);
-      }
-    });
-
-    /* ---------- local recursion to handle CourseBox ------------- */
-    function traverseBox(
-      box: CourseBox,
-      path: string[],
-      parentKey: string
-    ): void {
-      switch (box.kind) {
-        case "exact": {
-          const key = makeKey(progId, [...path, box.course.courseCode]);
-          attachNode(key, parentKey, "LEAF", box.course.courseCode);
-
-          requiredUnits[key] = box.course.moduleCredit ?? 0;
-          linkModule(key, box.course.courseCode);
-          return;
+            // Walk through each section and its boxes
+            for (const box of section.boxes) traverse(box, [secKey], secKey);
         }
 
-        case "dropdown": {
-          const key = makeKey(progId, [...path, "dropdown"]);
-          attachNode(
-            key,
-            parentKey,
-            box.min === 1 ? "OR" : "N_OF",
-            box.label ?? "Dropdown",
-            box.min
-          );
-          requiredUnits[key] = box.requiredUnits ?? 0;
+        // Traverse the CourseBox tree recursively
+        function traverse(box: CourseBox, path: string[], parent: string) {
+            switch (box.kind) {
+                case 'exact': {
+                    const key = makeKey(...path, box.course.courseCode);
+                    attach(key, parent, 'LEAF', box.course.courseCode);
+                    // Leaf units lives only in units map (no requirement)
+                    link(key, box.course.courseCode);
+                    break;
+                }
 
-          box.options.forEach((opt) => {
-            const cKey = makeKey(progId, [...path, opt.courseCode]);
-            attachNode(cKey, key, "LEAF", opt.courseCode);
-            requiredUnits[cKey] = opt.moduleCredit ?? 0;
-            linkModule(cKey, opt.courseCode);
-          });
-          return;
+                case 'dropdown': {
+                    const key = makeKey(...path, 'dropdown');
+                    attach(key, parent, 'OR', box.UILabel);
+                    // Dropdown itself has no AU target; children do
+                    box.options.forEach(opt => {
+                        const leaf = makeKey(key, opt.courseCode);
+                        attach(leaf, key, 'LEAF', opt.courseCode);
+                        link(leaf, opt.courseCode);
+                    });
+                    break;
+                }
+
+                case 'altPath': {
+                    const key = makeKey(...path, 'altPath');
+                    attach(key, parent, 'OR', box.UILabel);
+                    box.paths.forEach((p, i) => {
+                        const pathKey = makeKey(key, `path${i}`);
+                        attach(pathKey, key, 'AND', `Path ${i + 1}`);
+                        p.boxes.forEach(inner => traverse(inner, [pathKey], pathKey));
+                    });
+                    break;
+                }
+            }
         }
-
-        case "altPath": {
-          const key = makeKey(progId, [...path, "altPath"]);
-          attachNode(key, parentKey, "OR", box.label ?? "AltPath");
-          requiredUnits[key] = box.requiredUnits ?? 0;
-
-          box.paths.forEach((p, idx) => {
-            const pKey = makeKey(progId, [...path, `path${idx}`]);
-            attachNode(pKey, key, "AND", `Path ${idx + 1}`);
-            requiredUnits[pKey] = p.requiredUnits ?? 0;
-
-            p.boxes.forEach((inner) =>
-              traverseBox(inner, [...path, `path${idx}`], pKey)
-            );
-          });
-          return;
-        }
-      }
     }
 
-    /* small util to DRY node creation */
-    function attachNode(
-      key: string,
-      parent: string | null,
-      logic: RequirementNodeInfo["logic"],
-      title: string,
-      nOf?: number
-    ) {
-      nodeInfo[key] = {
-        logic,
-        parent,
-        children: [],
-        selfKey: key,
-        title,
-        ...(logic === "N_OF" && nOf ? { nOf } : {}),
-      };
-      if (parent) nodeInfo[parent].children.push(key);
-    }
-  }
+    // Pass through all merged maps
+    return {
+        requiredUnits,
+        modulesByRequirement,
+        requirementsByModule,
+        nodeInfo,
+        tags,
+        units,
+        prereqs,
+        preclusions,
 
-  /* ----------------------------------------------------------------
-   * 6️⃣  return final LookupTable
-   * ---------------------------------------------------------------- */
-  return {
-    requiredUnits,
-    modulesByRequirement,
-    requirementsByModule,
-    nodeInfo,
-    units,
-    prereqs,
-    preclusions,
-  };
-}
-
-/* ==================================================================
-   🔸  helper: merge plain { [key]: value } maps  (no overwrite)
-   ================================================================== */
-function mergeMaps<T extends Record<string, unknown>>(
-  dest: T,
-  src: T | undefined
-) {
-  if (!src) return;
-  for (const [k, v] of Object.entries(src)) {
-    if (Array.isArray(v)) {
-      // merge unique arrays
-      dest[k] = Array.from(new Set([...(dest[k] as unknown as any[]) ?? [], ...v])) as any;
-    } else if (typeof v === "object") {
-      dest[k] = { ...(dest[k] ?? {}), ...v } as any;
-    } else {
-      dest[k] ??= v as any;
-    }
-  }
+        maxRequirements,
+        // minRequirements is needed to satisfy LookupPayload but not used anymore
+        minRequirements: {},
+        selected,
+        version
+    };
 }

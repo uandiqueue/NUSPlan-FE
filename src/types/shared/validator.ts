@@ -7,6 +7,7 @@ export interface LookupPayload {
     prereqs: PrereqMap;
     preclusions: PreclusionMap;
     maxRequirements: MaxMap;
+    minRequirements: Record<string, number>;
     selected: ModuleCode[]; // Selected modules by default or user
     version: number;
 }

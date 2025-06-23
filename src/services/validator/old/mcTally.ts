@@ -1,8 +1,8 @@
-import type { PopulatedPayload, Course } from '../../app/types/payload';
+import type { PopulatedProgramPayload, CourseInfo } from '../../../types/shared/populator';
 
 export function tallyMC(
-  payload: PopulatedPayload,
-  chosen: Course[]
+  payload: PopulatedProgramPayload,
+  chosen: CourseInfo[]
 ): Record<string, number> {
   const tally: Record<string, number> = {};
   payload.requirements.forEach((b) => (tally[b.requirementKey] = 0));

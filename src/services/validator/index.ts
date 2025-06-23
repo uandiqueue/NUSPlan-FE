@@ -1,3 +1,3 @@
-export { prereqSatisfied } from './prereq';
-export { findClash } from './preclusion';
-export { tallyMC } from './mcTally';
+export { prereqSatisfied } from './old/prereq';
+export { findClash } from './old/preclusion';
+export { tallyMC } from './old/mcTally';

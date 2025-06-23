@@ -1,9 +1,9 @@
-import type { LookupTables } from '../../app/types/payload';
+import type { LookupPayload } from '../../../types/shared/validator';
 
 export function prereqSatisfied(
   code: string,
   picked: Set<string>,
-  lookup: LookupTables
+  lookup: LookupPayload
 ): boolean {
   const rule = lookup.prereqs?.[code];
   if (!rule) return true; 
