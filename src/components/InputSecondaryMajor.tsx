@@ -8,12 +8,7 @@ import {
   Select,
   IconButton,
   MenuItem,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  Button,
+  Tooltip
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 
@@ -23,14 +18,11 @@ function InputSecondaryMajor() {
     secondaryMajor,
     setSecondaryMajor,
     isDuplicate,
-    deleteSecondary,
   } = useMajorStore();
 
   const {
     showSecondarySelect,
     setShowSecondarySelect,
-    confirmDeleteSecondary,
-    setConfirmDeleteSecondary,
   } = useUIStore();
 
   const handleSelectSecondary = (e: SelectChangeEvent) => {
@@ -38,11 +30,18 @@ function InputSecondaryMajor() {
     setShowSecondarySelect(true);
   };
 
+  const handleDeleteSecondary = () => {
+    setSecondaryMajor("");
+    setShowSecondarySelect(false);
+  }
+
+  const isError = secondaryMajor !== "" && isDuplicate(secondaryMajor);
+
   return (
     <>
       {showSecondarySelect ? (
         <Paper sx={{ p: 2, mb: 2, display: "flex", alignItems: "center" }}>
-          <FormControl fullWidth>
+          <FormControl fullWidth error={isError}>
             <InputLabel>Select Secondary Major</InputLabel>
             <Select
               value={secondaryMajor}
@@ -53,50 +52,21 @@ function InputSecondaryMajor() {
                 <MenuItem
                   key={major}
                   value={major}
-                  disabled={isDuplicate(major) && major !== secondaryMajor}
                 >
                   {major}
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
-          <IconButton
-            onClick={() => setConfirmDeleteSecondary(true)}
-            sx={{ ml: 2 }}
-          >
-            <DeleteIcon />
-          </IconButton>
+          <Tooltip title="Remove Secondary Major">
+            <IconButton onClick={handleDeleteSecondary} sx={{ ml: 2 }}>
+              <DeleteIcon />
+            </IconButton>
+          </Tooltip>
         </Paper>
       ) : (
         <></>
       )}
-
-      <Dialog
-        open={confirmDeleteSecondary}
-        onClose={() => setConfirmDeleteSecondary(false)}
-      >
-        <DialogTitle>Confirm Deletion</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Are you sure you want to delete this Secondary Major?
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDeleteSecondary(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              deleteSecondary();
-              setConfirmDeleteSecondary(false);
-              setShowSecondarySelect(false);
-            }}
-            color="error"
-          >
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
     </>
   );
 }

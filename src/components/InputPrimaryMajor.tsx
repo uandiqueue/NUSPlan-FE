@@ -6,7 +6,10 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  IconButton,
+  Tooltip
 } from "@mui/material";
+import DeleteIcon from "@mui/icons-material/Delete";
 
 function InputPrimaryMajor() {
   const { majorList, primaryMajor, setPrimaryMajor, isDuplicate } =
@@ -16,9 +19,15 @@ function InputPrimaryMajor() {
     setPrimaryMajor(e.target.value);
   };
 
+  const handleDeletePrimary = () => {
+    setPrimaryMajor("");
+  }
+
+  const isError = primaryMajor !== "" && isDuplicate(primaryMajor);
+
   return (
-    <Paper sx={{ p: 2, mb: 2 }}>
-      <FormControl fullWidth>
+    <Paper sx={{ p: 2, mb: 2, display: "flex", alignItems: "center" }}>
+      <FormControl fullWidth error={isError}>
         <InputLabel>Primary Major</InputLabel>
         <Select
           value={primaryMajor}
@@ -29,13 +38,17 @@ function InputPrimaryMajor() {
             <MenuItem
               key={major}
               value={major}
-              disabled={isDuplicate(major) && major !== primaryMajor}
             >
               {major}
             </MenuItem>
           ))}
         </Select>
       </FormControl>
+      <Tooltip title="Clear Primary Major choice">
+        <IconButton onClick={handleDeletePrimary} sx={{ ml: 2 }}>
+          <DeleteIcon />
+        </IconButton>
+      </Tooltip>
     </Paper>
   );
 }
