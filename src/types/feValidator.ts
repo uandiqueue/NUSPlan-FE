@@ -1,5 +1,6 @@
 import { ModuleCode } from "./shared/nusmods-types";
-import { LookupPayload, TagMap, UnitMap, PrereqMap, PreclusionMap, MaxMap } from "./shared/validator";
+import { CapRule } from "./shared/populator";
+import { LookupPayload } from "./shared/validator";
 
 export interface LookupTable extends LookupPayload {
     // requirementKey -> number of units required
@@ -10,19 +11,7 @@ export interface LookupTable extends LookupPayload {
     requirementsByModule: Record<ModuleCode, string[]>;
     // requirementKey -> logic/children/parent key
     nodeInfo: Record<string, RequirementNodeInfo>;
-    // moduleCode -> array of BE requirementKeys it can fulfil (from BE, uses "-" as separator)
-    tags: TagMap;
-    // moduleCode -> units of a course
-    units: UnitMap;
-    // moduleCode -> prerequisite tree
-    prereqs: PrereqMap;
-    // moduleCode -> array of precluded modules
-    preclusions: PreclusionMap;
-    // moduleCode -> list of max requirementKeys/maxRuleTags
-    maxRequirements: MaxMap;
-    // Selected modules by default or user
-    selected: ModuleCode[];
-    version: number;
+    // LookupPayload fields (tags, units, etc.) are inherited
 }
 
 export type Logic = 'AND' | 'OR' | 'N_OF' | 'LEAF' | 'SECTION';
@@ -37,4 +26,12 @@ export interface RequirementNodeInfo {
     children: string[];
     // human-readable title for the requirement (for UI)
     title: string;
+}
+
+// Max cap
+export type TagStripMap = Record<ModuleCode, string[]>;
+export interface Usage {
+    used: number;
+    max: number;
+    rule: CapRule;
 }

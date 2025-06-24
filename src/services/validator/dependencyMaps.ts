@@ -1,6 +1,18 @@
 import type { LookupPayload } from '../../types/shared/validator';
 import type { ModuleCode } from '../../types/shared/nusmods-types';
 
+// Wildcard helper (For milestone 3 adding of prereq courses)
+const matches = (pattern: string, code: string) =>
+    pattern.includes('%') 
+        ? new RegExp('^' + pattern.replace('%', '.*') + '$').test(code) 
+        : pattern === code;
+
+// Grade helper (For milestone 3 warning message)
+const gradeOK = (need: string, got: string) => {
+    const order = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'D+', 'D', 'S', 'F', 'U'];
+    return order.indexOf(got) <= order.indexOf(need);
+};
+
 // Build quick maps for selected ModuleCode -> prereqs | preclusions
 export function buildDependencyMaps(
     picked: Set<ModuleCode>,

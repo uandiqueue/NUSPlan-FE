@@ -1,8 +1,8 @@
 import { useContext } from 'react';
-import { PayloadContext } from '../context/payloadContext';
+import { PlannerContext } from '../context/payloadContext';
 
 export function usePlanner() {
-    const ctx = useContext(PayloadContext);
-    if (!ctx) throw new Error('usePlanner must be inside PayloadProvider');
+    const ctx = useContext(PlannerContext);
+    if (!ctx) throw new Error('usePlanner must be inside PlannerProvider');
     return ctx;
 }

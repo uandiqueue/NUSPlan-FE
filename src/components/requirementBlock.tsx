@@ -1,20 +1,24 @@
-import { RequirementSection } from '../types/shared/populator';
+import type { RequirementSection } from '../types/shared/populator';
 import { BoxRenderer } from './boxRenderer';
 import { usePlanner } from '../hooks/usePlanner';
 
+// Renders a single UI section block (“Core Electives” etc.)
 export function RequirementBlock({ block }: { block: RequirementSection }) {
+  // Read helpers from context
   const { progress } = usePlanner();
-  const earned = progress[block.requirementKey] ?? 0;
+
+  // Call progress helper (function, not map)
+  const { have, need } = progress(block.requirementKey);
 
   return (
     <section className="mb-6">
       <h3 className="font-semibold">
-        {block.label} — {earned}/{block.requiredUnits} MC
+        {block.label} — {have}/{need} MC
       </h3>
 
       <div className="mt-2 flex flex-col gap-2">
-        {block.boxes.map((box) => (
-          <BoxRenderer key={box.boxKey} box={box} />
+        {block.boxes.map(b => (
+          <BoxRenderer key={b.boxKey} box={b} />
         ))}
       </div>
     </section>

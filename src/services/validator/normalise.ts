@@ -36,7 +36,7 @@ export function normalisePayload(
     const preclusions: PreclusionMap = {};
     const maxRequirements: MaxMap = {};
     const selected: ModuleCode[] = [];
-    const version: number = 1;
+    let version: number = 1;
 
     // Helpers
     const makeKey = (...parts: string[]) => parts.filter(Boolean).join(':');
@@ -60,11 +60,14 @@ export function normalisePayload(
         const pid = `${payload.metadata.name}-${payload.metadata.type}`;
 
         // Merge backend lookup maps
-        Object.assign(units,       payload.lookup.units);
-        Object.assign(prereqs,     payload.lookup.prereqs);
+        Object.assign(units, payload.lookup.units);
+        Object.assign(prereqs, payload.lookup.prereqs);
         Object.assign(preclusions, payload.lookup.preclusions);
-        Object.assign(tags,        payload.lookup.tags);
+        Object.assign(tags, payload.lookup.tags);
         Object.assign(requiredUnits, payload.lookup.minRequirements);
+        Object.assign(maxRequirements, payload.lookup.maxRequirements);
+        selected.push(...(payload.lookup.selected ?? []));
+        version = payload.lookup.version
 
         // Top-level UI sections
         for (const section of payload.requirements) {

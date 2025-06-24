@@ -9,7 +9,7 @@ import AddSecondary from "./components/AddSecondary";
 import AddMinor from "./components/AddMinor";
 import { populateModules } from "./api/populate";
 import type { PopulatedProgramPayload, Programme } from "./types/shared/populator";
-import { PayloadProvider } from "./context/payloadContext";
+import { PlannerProvider } from "./context/payloadContext";
 import PlannerPage from "./pages/PlannerPage";
 
 export default function App() {
@@ -53,24 +53,26 @@ export default function App() {
       programmes.push({ name: minor, type: "minor" })
     );
 
+    // Backend fetch
     try {
       setLoading(true);
-      console.log(programmes);
-      const res = await populateModules(programmes);
-      const inner = res[0];
-      if (inner) setPayload(inner);
-      else setErrorMessage("Backend returned no payload.");
-
-    } catch (err) {
+      const payloads = await populateModules(programmes); // expect full objects
+      if (payloads && payloads.length) {
+        setPayload(payloads[0]); // full PopulatedProgramPayload
+      } else {
+        setErrorMessage("Backend returned no payload.");
+      }
+    } catch {
       setErrorMessage("Failed to fetch modules from backend.");
     } finally {
       setLoading(false);
     }
   };
 
+  // Planner page
   if (payload) {
     return (
-      <PayloadProvider initialPayload={payload}>
+      <PlannerProvider initialPayload={payload}>
         <PlannerPage
           onBack={() => {
             setPayload(null);
@@ -78,22 +80,23 @@ export default function App() {
             setShowSecondarySelect(false);
           }}
         />
-      </PayloadProvider>
+      </PlannerProvider>
     );
   }
 
+  // Selection page
   return (
     <Box p={4} maxWidth={580}>
       <Typography variant="h4" gutterBottom>
         NUSPlan
       </Typography>
 
-      {/* programme selectors */}
+      {/* Selectors */}
       <InputPrimaryMajor />
       <InputSecondaryMajor />
       <InputMinor />
 
-      {/* action buttons */}
+      {/* Buttons */}
       <Box display="flex" gap={2} mt={2}>
         <AddSecondary />
         <AddMinor />
@@ -111,14 +114,14 @@ export default function App() {
         </Button>
       </Box>
 
-      {/* loading spinner */}
+      {/* Spinner */}
       {loading && (
         <Box mt={4} display="flex" justifyContent="center">
           <CircularProgress />
         </Box>
       )}
 
-      {/* toast-style error message */}
+      {/* Error toast */}
       <Snackbar
         open={!!errorMessage}
         autoHideDuration={3000}
