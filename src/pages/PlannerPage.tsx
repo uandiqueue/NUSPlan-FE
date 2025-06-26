@@ -10,23 +10,25 @@ import {
   useMediaQuery,
   Alert,
   IconButton,
+  Tabs,
+  Tab
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 
 import { RequirementBlock } from '../components/requirementBlock';
-import { ProgressGraph }    from '../components/progressGraph';
-import { usePlanner }       from '../hooks/usePlanner';
+import { ProgressGraph } from '../components/progressGraph';
+import { usePlanner } from '../hooks/usePlanner';
 
 export interface PlannerPageProps {
-  onBack: () => void;
+  onBack: () => void; // To go back to the major selection page
 }
 
 export default function PlannerPage({ onBack }: PlannerPageProps) {
   // Context via usePlanner hook
   const ctx = usePlanner();            // returns PlannerContextValue
   const theme = useTheme();
-  const upLg  = useMediaQuery(theme.breakpoints.up('lg'));
-  const [hideWarn, setHideWarn] = useState(false);
+  const upLg = useMediaQuery(theme.breakpoints.up('lg'));
+  const [hideWarn, setHideWarn] = useState(false); // control hiding warning banner
 
   // Provider not mounted yet
   if (!ctx) {
@@ -37,11 +39,12 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
     );
   }
 
-  const { payload, warnings } = ctx;
+  const { selectedProgramIndex, setSelectedProgramIndex, payload, payloads, warnings } = ctx;
+  console.log("payloads: ", payloads)
 
   return (
     <Box p={4}>
-      {/* ← Back button */}
+      {/* ← Back button to major selection page*/}
       <Button variant="text" size="small" onClick={onBack} sx={{ mb: 2 }}>
         ← Back to programme selection
       </Button>
@@ -63,14 +66,21 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
         </Alert>
       )}
 
-      {/* Main grid layout */}
+      {/* Tabs for each selected program */}
+      <Tabs value={selectedProgramIndex} onChange={(_, value) => setSelectedProgramIndex(value)} sx={{ mb: 2 }}>
+        {payloads.map((program, index) => (
+          <Tab key={index} label={program.metadata.name} sx={{ textTransform: 'none', fontWeight: 600 }} />
+        ))}
+      </Tabs>
+
+      {/* Main grid layout: left = program requirements, right = progress */}
       <Box
         display="grid"
         gap={4}
         gridTemplateColumns={upLg ? '2fr 1fr' : '1fr'}
       >
         {/* Requirement sections */}
-        <Box>
+        <Box border="1px solid #ccc" borderRadius={2} p={3}>
           {payload.requirements.map(sec => (
             <RequirementBlock key={sec.requirementKey} block={sec} />
           ))}

@@ -14,73 +14,78 @@ import type {
 } from '../types/shared/populator';
 import type { PlannerContextValue } from '../types/ui';
 
-import { normalisePayload }  from '../services/validator/normalise';
+import { normalisePayload } from '../services/validator/normalise';
 import { validateSelection } from '../services/validator/realtime';
+
 export const PlannerContext = createContext<PlannerContextValue | null>(null);
 
 export function PlannerProvider({
-    initialPayload,
+    initialPayloads,
     children,
 }: {
-    initialPayload: PopulatedProgramPayload;
+    initialPayloads: PopulatedProgramPayload[];
     children: ReactNode;
 }) {
-    // Flatten backend payload once
-    const flat = useMemo(
-        () => normalisePayload([initialPayload]),
-        [initialPayload],
+    // Store all normalized payloads (one per program)
+    const flatPayloads = useMemo(
+        () => initialPayloads.map(program => normalisePayload([program])),
+        [initialPayloads],
     );
 
-    // Chosen courses
-    const [chosen, setChosen] = useState<CourseInfo[]>([]);
+    // Track which tab/program is selected
+    const [selectedProgramIndex, setSelectedProgramIndex] = useState(0);
 
-    // Run validator every time chosen changes
-    const validation = useMemo(
-        () => validateSelection(chosen.map(c => c.courseCode), flat),
-        [chosen, flat],
+    // Track chosen modules per program
+    const [chosenProgram, setChosenProgram] = useState<CourseInfo[][]>(() => initialPayloads.map(() => []));
+
+    // Run validator for all programs
+    const validations = useMemo(
+        () =>
+            chosenProgram.map((program, index) =>
+                validateSelection(program.map(module => module.courseCode), flatPayloads[index])),
+        [chosenProgram, flatPayloads]
     );
 
     // Toggle helper
     const toggle = useCallback(
         (course: CourseInfo, dropdownGroup?: string[]) => {
-            setChosen(curr => {
-                const pickedSet = new Set(curr.map(m => m.courseCode));
+            setChosenProgram(prev => {
+                const updated = [...prev]; // Clone the top-level array
+                const current = prev[selectedProgramIndex]; // Current program's selected modules
+                const pickedSet = new Set(current.map(module => module.courseCode)); // Set to check if a module is already selected
 
-                // Deselect
-                // (One click do both add/remove course)
+                // If the course is already selected, remove it from the current list
+                // Update the current program's slot in the array
+                // Return the new array
                 if (pickedSet.has(course.courseCode)) {
-                    return curr.filter(c => c.courseCode !== course.courseCode);
+                    updated[selectedProgramIndex] = current.filter(module => module.courseCode !== course.courseCode);
+                    return updated;
                 }
 
-                // Build candidate list 
-                // (what the selected courses list will look like if accept this new selection)
+                // If it is a dropdown selection group, remove any other module in the same group
+                // Else just add the new module
                 const base = dropdownGroup
-                    ? curr.filter(c => !dropdownGroup.includes(c.courseCode))
-                    : curr;
+                    ? current.filter(module => !dropdownGroup.includes(module.courseCode)) // remove all options in the same group
+                    : current;
                 const candidate = [...base, course];
 
-                // Run validator once on candidate list
-                const candVal = validateSelection(candidate.map(c => c.courseCode), flat);
+                // Run validation on the current program's payload
+                const candVal = validateSelection(candidate.map(c => c.courseCode), flatPayloads[selectedProgramIndex]);
 
-                // If candidate module appears in `blocked` it is precluded
-                if (candVal.blocked.has(course.courseCode)) {
-                    // UI read this warning based on context.blocked later
-                    return curr; // reject toggle
-                }
-
-                // If candidate produces a prereq warning that mentions itself
                 if (
-                    candVal.warnings.some(w => w.startsWith(`${course.courseCode} prerequisite`))
+                    candVal.blocked.has(course.courseCode) || // Candidate module appears in `blocked` - it is precluded
+                    candVal.warnings.some(w => w.startsWith(`${course.courseCode} prerequisite`)) // Candidate produces a prereq warning that mentions itself
                 ) {
-                    // UI read this warning via context.warnings later
-                    return curr; // reject toggle
+                    // UI read this warning based on context.blocked later
+                    return prev; // reject toggle
                 }
 
-                // Else accept toggle
-                return candidate;
+                // Accept toggle
+                updated[selectedProgramIndex] = candidate;
+                return updated;
             });
         },
-        [flat],
+        [selectedProgramIndex, flatPayloads]
     );
 
     // Helper for UI to disable buttons
@@ -90,31 +95,42 @@ export function PlannerProvider({
     // Are still selectable but don’t fulfill any requirement anymore (fully stripped by cap rule).
     const canPick = useCallback(
         (course: CourseInfo) => {
+            const validation = validations[selectedProgramIndex];
+            const flat = flatPayloads[selectedProgramIndex];
+
             // Preclusion check
             if (validation.blocked.has(course.courseCode)) return false;
 
             // Cap-strip check
-            const removed   = new Set(validation.stripped[course.courseCode] ?? []);
-            const allTags   = flat.tags[course.courseCode] ?? [];
+            const removed = new Set(validation.stripped[course.courseCode] ?? []);
+            const allTags = flat.tags[course.courseCode] ?? [];
 
             // Keep course enabled if at least ONE tag survives
             const stillUseful = allTags.some(t => !removed.has(t));
 
-        return stillUseful;
+            return stillUseful;
         },
-        [validation.blocked, validation.stripped, flat.tags],
+        [selectedProgramIndex, validations, flatPayloads]
     );
+
+    // Convenience getter
+    const currentPayload = initialPayloads[selectedProgramIndex];
+    const currentValidation = validations[selectedProgramIndex];
+    const currentChosen = chosenProgram[selectedProgramIndex];
 
     // Context value (matches PlannerContextValue)
     const value: PlannerContextValue = {
-        payload: initialPayload,
-        chosen,
+        payload: currentPayload,
+        payloads: initialPayloads,
+        chosen: currentChosen,
         toggle,
         canPick,
-        progress: validation.progress,
-        warnings: validation.warnings,
-        blocked: validation.blocked,
-        stripped: validation.stripped,
+        progress: currentValidation.progress,
+        warnings: currentValidation.warnings,
+        blocked: currentValidation.blocked,
+        stripped: currentValidation.stripped,
+        selectedProgramIndex,
+        setSelectedProgramIndex
     };
 
     return (

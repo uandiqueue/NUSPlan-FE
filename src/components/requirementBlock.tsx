@@ -1,6 +1,7 @@
 import type { RequirementSection } from '../types/shared/populator';
 import { BoxRenderer } from './boxRenderer';
 import { usePlanner } from '../hooks/usePlanner';
+import { Box, Typography } from "@mui/material";
 
 // Renders a single UI section block (“Core Electives” etc.)
 export function RequirementBlock({ block }: { block: RequirementSection }) {
@@ -8,19 +9,17 @@ export function RequirementBlock({ block }: { block: RequirementSection }) {
   const { progress } = usePlanner();
 
   // Call progress helper (function, not map)
-  const { have, need } = progress(block.requirementKey);
+  const { have, need } = progress(block.requirementKey); // current + required AUs
 
   return (
-    <section className="mb-6">
-      <h3 className="font-semibold">
-        {block.label} — {have}/{need} MC
-      </h3>
-
-      <div className="mt-2 flex flex-col gap-2">
-        {block.boxes.map(b => (
-          <BoxRenderer key={b.boxKey} box={b} />
-        ))}
-      </div>
-    </section>
+    <Box mb={4} p={2} border="1px solid #ccc" borderRadius={2}>
+      {/* Section title + AU progress */}
+      <Typography variant="h6" gutterBottom>
+        {block.label} - {have}/{need} MC
+      </Typography>
+      <Box display="flex" flexWrap="wrap" gap={2}>
+        {block.boxes.map(b => <BoxRenderer key={b.boxKey} box={b}/>)}
+      </Box>
+    </Box >
   );
 }

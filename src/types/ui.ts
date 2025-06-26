@@ -2,8 +2,15 @@ import { PopulatedProgramPayload, CourseInfo } from "./shared/populator";
 import { ModuleCode } from "./shared/nusmods-types";
 
 export interface PlannerContextValue {
-  // Raw backend payload (unchanged)
+  // All programs
+  payloads: PopulatedProgramPayload[];
+
+  // Currently selected program
   payload: PopulatedProgramPayload;
+
+  // To change tabs (Primary Major, Secondary Major, Minors) in the PlannerPage
+  selectedProgramIndex: number;
+  setSelectedProgramIndex: (i: number) => void;
 
   // The courses the user has actually selected right now
   chosen: CourseInfo[];
