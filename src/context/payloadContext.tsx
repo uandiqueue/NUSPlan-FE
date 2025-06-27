@@ -12,10 +12,12 @@ import type {
     PopulatedProgramPayload,
     CourseInfo,
 } from '../types/shared/populator';
-import type { PlannerContextValue } from '../types/ui';
+import type { PlannerContextValue, UserSelection } from '../types/ui';
 
 import { normalisePayload } from '../services/validator/normalise';
 import { validateSelection } from '../services/validator/realtime';
+
+import { useUIStore } from '../store/useUIStore';
 
 export const PlannerContext = createContext<PlannerContextValue | null>(null);
 
@@ -26,6 +28,8 @@ export function PlannerProvider({
     initialPayloads: PopulatedProgramPayload[];
     children: ReactNode;
 }) {
+    const { setErrorMessage } = useUIStore();
+
     // Store all normalized payloads (one per program)
     const flatPayloads = useMemo(
         () => initialPayloads.map(program => normalisePayload([program])),
@@ -36,81 +40,90 @@ export function PlannerProvider({
     const [selectedProgramIndex, setSelectedProgramIndex] = useState(0);
 
     // Track chosen modules per program
-    const [chosenProgram, setChosenProgram] = useState<CourseInfo[][]>(() => initialPayloads.map(() => []));
+    const [chosenProgram, setChosenProgram] = useState<UserSelection[][]>(() => initialPayloads.map(() => []));
 
-    // Run validator for all programs
-    const validations = useMemo(
-        () =>
-            chosenProgram.map((program, index) =>
-                validateSelection(program.map(module => module.courseCode), flatPayloads[index])),
-        [chosenProgram, flatPayloads]
-    );
+    {/* Duplication detections */ }
+    // Find duplicates for current program
+    const duplicateDropdowns = useCallback(() => {
+        const currentProgram = chosenProgram[selectedProgramIndex];
+        const countTracker: Record<string, string[]> = {};
+        currentProgram.forEach(sel => {
+            if (!countTracker[sel.course.courseCode]) {
+                countTracker[sel.course.courseCode] = [];
+            }
+            countTracker[sel.course.courseCode].push(sel.boxKey);
+        });
+
+        return Object.entries(countTracker)
+            .filter(([_, boxKeys]) => boxKeys.length > 1)
+            .map(([courseCode, boxKeys]) => ({ courseCode, boxKeys }));
+    }, [chosenProgram, selectedProgramIndex]);
+
+    // Find if a specific courseCode/ boxKey is a duplicate
+    const isDuplicate = (courseCode: string, boxKey: string) => {
+        const currentProgram = chosenProgram[selectedProgramIndex];
+        return (
+            currentProgram.filter(sel => sel.course.courseCode === courseCode).length > 1 &&
+            currentProgram.some(sel => sel.boxKey === boxKey && sel.course.courseCode === courseCode)
+        );
+    };
 
     // Toggle helper
     const toggle = useCallback(
-        (course: CourseInfo, dropdownGroup?: string[]) => {
+        (course: CourseInfo, boxKey: string, requirementKey: string, dropdownGroup?: string[]) => {
             setChosenProgram(prev => {
                 const updated = [...prev]; // Clone the top-level array
                 const current = prev[selectedProgramIndex]; // Current program's selected modules
-                const pickedSet = new Set(current.map(module => module.courseCode)); // Set to check if a module is already selected
 
-                // If the course is already selected, remove it from the current list
-                // Update the current program's slot in the array
-                // Return the new array
-                if (pickedSet.has(course.courseCode)) {
-                    updated[selectedProgramIndex] = current.filter(module => module.courseCode !== course.courseCode);
-                    return updated;
+                // Remove current box's selection
+                let next = current.filter(sel => sel.boxKey !== boxKey);
+
+                /*
+                // If dropdownGroup, remove all others in the group
+                if (dropdownGroup) {
+                    next = next.filter(sel => !dropdownGroup.includes(sel.course.courseCode));
                 }
+                 */
 
-                // If it is a dropdown selection group, remove any other module in the same group
-                // Else just add the new module
-                const base = dropdownGroup
-                    ? current.filter(module => !dropdownGroup.includes(module.courseCode)) // remove all options in the same group
-                    : current;
-                const candidate = [...base, course];
+                // Add new selection
+                next.push({ course, boxKey, requirementKey });
 
-                // Run validation on the current program's payload
-                const candVal = validateSelection(candidate.map(c => c.courseCode), flatPayloads[selectedProgramIndex]);
-
-                if (
-                    candVal.blocked.has(course.courseCode) || // Candidate module appears in `blocked` - it is precluded
-                    candVal.warnings.some(w => w.startsWith(`${course.courseCode} prerequisite`)) // Candidate produces a prereq warning that mentions itself
-                ) {
-                    // UI read this warning based on context.blocked later
-                    return prev; // reject toggle
-                }
-
-                // Accept toggle
-                updated[selectedProgramIndex] = candidate;
+                updated[selectedProgramIndex] = next;
                 return updated;
             });
+
+            setErrorMessage("");
         },
-        [selectedProgramIndex, flatPayloads]
+        [selectedProgramIndex]
     );
 
-    // Helper for UI to disable buttons
-    // Disable or grey out courses that the user can no longer pick.
-    // Prevent picking courses that:
-    // Are precluded by something already selected.
-    // Are still selectable but don’t fulfill any requirement anymore (fully stripped by cap rule).
+    // Run validator for current chosen courses
+    const validations = useMemo(
+        () =>
+            chosenProgram.map((program, index) =>
+                validateSelection(program.map(sel => sel.course.courseCode), flatPayloads[index])),
+        [chosenProgram, flatPayloads]
+    );
+
+    // UI disables blocked/precluded courses for guidance only (optional)
     const canPick = useCallback(
         (course: CourseInfo) => {
             const validation = validations[selectedProgramIndex];
             const flat = flatPayloads[selectedProgramIndex];
 
-            // Preclusion check
             if (validation.blocked.has(course.courseCode)) return false;
 
-            // Cap-strip check
             const removed = new Set(validation.stripped[course.courseCode] ?? []);
             const allTags = flat.tags[course.courseCode] ?? [];
-
-            // Keep course enabled if at least ONE tag survives
             const stillUseful = allTags.some(t => !removed.has(t));
-
             return stillUseful;
         },
         [selectedProgramIndex, validations, flatPayloads]
+    );
+
+    // Compose warnings: validator + duplicate dropdowns
+    const duplicateWarnings = duplicateDropdowns().map(
+        d => `Duplicate course selected in multiple dropdowns: ${d.courseCode}`
     );
 
     // Convenience getter
@@ -126,11 +139,17 @@ export function PlannerProvider({
         toggle,
         canPick,
         progress: currentValidation.progress,
-        warnings: currentValidation.warnings,
+        warnings: [
+            ...currentValidation.warnings,
+            ...duplicateWarnings,
+        ],
         blocked: currentValidation.blocked,
         stripped: currentValidation.stripped,
         selectedProgramIndex,
-        setSelectedProgramIndex
+        setSelectedProgramIndex,
+        // Optional helpers for BoxRenderer:
+        isDuplicate,
+        duplicateDropdowns,
     };
 
     return (

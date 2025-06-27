@@ -40,7 +40,6 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
   }
 
   const { selectedProgramIndex, setSelectedProgramIndex, payload, payloads, warnings } = ctx;
-  console.log("payloads: ", payloads)
 
   return (
     <Box p={4}>

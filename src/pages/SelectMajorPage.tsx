@@ -72,7 +72,6 @@ function SelectMajorPage() {
 
     // Planner page
     if (payload) {
-        console.log("after: ", payload); // TO REMOVE
         return (
             <PlannerProvider initialPayloads={payload}>
                 <PlannerPage

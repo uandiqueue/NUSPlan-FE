@@ -18,7 +18,7 @@ export function RequirementBlock({ block }: { block: RequirementSection }) {
         {block.label} - {have}/{need} MC
       </Typography>
       <Box display="flex" flexWrap="wrap" gap={2}>
-        {block.boxes.map(b => <BoxRenderer key={b.boxKey} box={b}/>)}
+        {block.boxes.map(b => <BoxRenderer key={b.boxKey} box={b} requirementKey={block.requirementKey}/>)}
       </Box>
     </Box >
   );
