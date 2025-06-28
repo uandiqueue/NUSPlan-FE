@@ -29,7 +29,7 @@ export interface RequirementNodeInfo {
 }
 
 // Max cap
-export type TagStripMap = Record<ModuleCode, string[]>;
+export type TagStripMap = Record<ModuleCode, string[]>; // moduleCode -> array of tags to strip from this course
 export interface Usage {
     used: number;
     max: number;

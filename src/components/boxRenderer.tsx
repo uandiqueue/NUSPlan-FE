@@ -1,4 +1,4 @@
-import { usePlanner } from '../hooks/usePlanner';
+import { usePlanner } from '../store/usePlanner';
 import type { CourseBox, CourseInfo } from '../types/shared/populator';
 import { Box, Typography, Autocomplete, TextField, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
 import { useState } from 'react';
@@ -25,7 +25,7 @@ export function BoxRenderer({ box, requirementKey }: { box: CourseBox, requireme
     isDuplicate, // From context
   } = usePlanner();
 
-  console.log("chosen: ", chosen); // TO REMOVE
+  //console.log("chosen: ", chosen); // DEBUG
 
   // --- ExactBox ---
   if (box.kind === 'exact') {

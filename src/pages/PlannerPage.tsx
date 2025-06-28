@@ -15,31 +15,34 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 
-import { RequirementBlock } from '../components/requirementBlock';
-import { ProgressGraph } from '../components/progressGraph';
-import { usePlanner } from '../hooks/usePlanner';
+import { RequirementBlock } from '../components/RequirementBlock';
+import ProgressGraph from '../components/ProgressGraph';
+import { usePlanner } from '../store/usePlanner';
 
 export interface PlannerPageProps {
   onBack: () => void; // To go back to the major selection page
 }
 
 export default function PlannerPage({ onBack }: PlannerPageProps) {
-  // Context via usePlanner hook
-  const ctx = usePlanner();            // returns PlannerContextValue
+  const {
+    payloads,
+    payload,
+    selectedProgramIndex,
+    switchProgramme,
+    warnings
+  } = usePlanner();
   const theme = useTheme();
   const upLg = useMediaQuery(theme.breakpoints.up('lg'));
   const [hideWarn, setHideWarn] = useState(false); // control hiding warning banner
 
   // Provider not mounted yet
-  if (!ctx) {
+  if (!payloads.length) {
     return (
       <Box p={4}>
         <Typography>Loading…</Typography>
       </Box>
     );
   }
-
-  const { selectedProgramIndex, setSelectedProgramIndex, payload, payloads, warnings } = ctx;
 
   return (
     <Box p={4}>
@@ -66,7 +69,7 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
       )}
 
       {/* Tabs for each selected program */}
-      <Tabs value={selectedProgramIndex} onChange={(_, value) => setSelectedProgramIndex(value)} sx={{ mb: 2 }}>
+      <Tabs value={selectedProgramIndex} onChange={(_, value) => switchProgramme(value)} sx={{ mb: 2 }}>
         {payloads.map((program, index) => (
           <Tab key={index} label={program.metadata.name} sx={{ textTransform: 'none', fontWeight: 600 }} />
         ))}
@@ -88,10 +91,10 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
         {/* Progress sidebar */}
         <Box position="sticky" top={16}>
           <Typography variant="h6" gutterBottom>
-            Progress
+            Overall Progress
           </Typography>
           <Divider sx={{ mb: 2 }} />
-          <ProgressGraph />
+          <ProgressGraph /> 
         </Box>
       </Box>
     </Box>

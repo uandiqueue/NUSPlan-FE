@@ -8,81 +8,113 @@ import InputMinor from "../components/InputMinor";
 import AddSecondary from "../components/AddSecondary";
 import AddMinor from "../components/AddMinor";
 import { populateModules } from "../api/populate";
-import type { PopulatedProgramPayload, Programme } from "../types/shared/populator";
-import { PlannerProvider } from "../context/payloadContext";
+import type { Programme, PopulatedProgramPayload } from "../types/shared/populator";
 import PlannerPage from "./PlannerPage";
+import { usePlanner } from "../store/usePlanner";
+import type { LookupTable } from "../types/feValidator";
+import { normalisePayload } from "../services/validator/normalise";
+import { exportJson } from "../services/tester";
 
-function SelectMajorPage() {
-    const { primaryMajor, secondaryMajor, minors, getAllSelected, isDuplicate, resetAll } =
-        useMajorStore();
-    const {
-        showSecondarySelect,
-        setShowSecondarySelect,
-        errorMessage,
-        setErrorMessage,
-    } = useUIStore();
+function buildFEtoBEMap(lookup: LookupTable): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const beKey in lookup.modulesByRequirement) {
+    const parts = beKey.split(':');
+    const feKey = parts[parts.length - 1];
+    map[feKey] = beKey;
+  }
+  return map;
+}
 
-    const [payload, setPayload] = useState<PopulatedProgramPayload[] | null>(null);
-    const [loading, setLoading] = useState(false);
+export default function SelectMajorPage() {
+  /* ------- stores ------- */
+  const {
+    primaryMajor,
+    secondaryMajor,
+    minors,
+    getAllSelected,
+    isDuplicate,
+    resetAll,
+  } = useMajorStore();
 
-    const handleGenerateCourses = async () => {
-        const selectedMajors = getAllSelected();
-        for (const major of selectedMajors) {
-            if (isDuplicate(major)) {
-                setErrorMessage("You cannot choose the same major more than once.");
-                return;
-            }
-        }
+  const {
+    showSecondarySelect,
+    setShowSecondarySelect,
+    errorMessage,
+    setErrorMessage,
+  } = useUIStore();
 
-        if (!primaryMajor) {
-            setErrorMessage("Please select a primary major.");
-            return;
-        }
-        if (showSecondarySelect && !secondaryMajor) {
-            setErrorMessage("You have not selected your secondary major.");
-            return;
-        }
-        if (minors.some((minor) => !minor?.trim())) {
-            setErrorMessage("You have not selected your minor.");
-            return;
-        }
+  /* ------- local state ------- */
+  const [loaded,  setLoaded]  = useState(false);
+  const [loading, setLoading] = useState(false);
 
-        const programmes: Programme[] = [];
-        programmes.push({ name: primaryMajor, type: "major" });
-        if (secondaryMajor) programmes.push({ name: secondaryMajor, type: "secondMajor" });
-        minors.forEach((minor) =>
-            programmes.push({ name: minor, type: "minor" })
-        );
+  /* ============================================================ */
+  /*                       EVENT HANDLERS                         */
+  /* ============================================================ */
 
-        // Backend fetch
-        try {
-            setLoading(true);
-            const payloads = await populateModules(programmes); // expect full objects
-            if (payloads && payloads.length) {
-                setPayload(payloads); // full PopulatedProgramPayload
-            } else {
-                setErrorMessage("Backend returned no payload.");
-            }
-        } catch {
-            setErrorMessage("Failed to fetch modules from backend.");
-        } finally {
-            setLoading(false);
-        }
-    };
+  const handleGenerateCourses = async () => {
+    /* -------- basic validation -------- */
+    const selected = getAllSelected();
+    for (const m of selected) {
+      if (isDuplicate(m)) {
+        setErrorMessage('You cannot choose the same major more than once.');
+        return;
+      }
+    }
+    if (!primaryMajor) {
+      setErrorMessage('Please select a primary major.');
+      return;
+    }
+    if (showSecondarySelect && !secondaryMajor) {
+      setErrorMessage('You have not selected your secondary major.');
+      return;
+    }
+    if (minors.some((m) => !m?.trim())) {
+      setErrorMessage('You have not selected your minor.');
+      return;
+    }
 
+    /* -------- build request body -------- */
+    const programmes: Programme[] = [];
+    programmes.push({ name: primaryMajor,  type: 'major' });
+    if (secondaryMajor)
+      programmes.push({ name: secondaryMajor, type: 'secondMajor' });
+    minors.forEach((mn) => programmes.push({ name: mn, type: 'minor' }));
+
+    /* -------- fetch backend -------- */
+    try {
+      setLoading(true);
+      const payloads: PopulatedProgramPayload[] = await populateModules(programmes);
+
+      if (!payloads.length) {
+        setErrorMessage('Backend returned no payload.');
+        return;
+      }
+
+      /* -------- transform lookups & maps -------- */
+      const lookups:   LookupTable[] = payloads.map(normalisePayload);
+      const fe2beList: Record<string, string>[] = lookups.map(buildFEtoBEMap);
+
+      /* -------- load global planner store -------- */
+      usePlanner.getState().loadProgrammes(payloads, lookups, fe2beList);
+      setLoaded(true);
+    } catch (err) {
+      console.error(err);
+      setErrorMessage('Failed to fetch modules from backend.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBack = () => {
+    setLoaded(false);
+    resetAll();
+    setShowSecondarySelect(false);
+  };
+
+    /* RENDER */
     // Planner page
-    if (payload) {
-        return (
-            <PlannerProvider initialPayloads={payload}>
-                <PlannerPage
-                    onBack={() => {
-                        setPayload(null);
-                        resetAll();
-                        setShowSecondarySelect(false);
-                    }}
-                />
-            </PlannerProvider>
-        );
+    if (loaded) {
+        return <PlannerPage onBack={handleBack} />;
     }
 
     // Choose Major page
@@ -132,5 +164,3 @@ function SelectMajorPage() {
         </Box>
     );
 }
-
-export default SelectMajorPage;
