@@ -15,8 +15,8 @@ import {
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 
-import { RequirementBlock } from '../components/RequirementBlock';
-import ProgressGraph from '../components/ProgressGraph';
+import { RequirementBlock } from '../components/requirementBlock';
+import ProgressGraph from '../components/progressGraph';
 import { usePlanner } from '../store/usePlanner';
 
 export interface PlannerPageProps {

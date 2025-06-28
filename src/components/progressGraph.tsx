@@ -1,7 +1,7 @@
 import { CircularProgress, Box, Typography } from "@mui/material";
 import { usePlanner } from "../store/usePlanner";
 
-export default function ProgressDonut() {
+export default function ProgressGraph() {
   const { payload, progress } = usePlanner();
 
   // Compute overall progress (sum of have / need across all sections)
