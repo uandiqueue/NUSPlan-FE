@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Button,
@@ -17,7 +17,7 @@ import CloseIcon from '@mui/icons-material/Close';
 
 import { RequirementBlock } from '../components/requirementBlock';
 import ProgressGraph from '../components/progressGraph';
-import { usePlanner } from '../store/usePlanner';
+import { usePlannerStore } from '../store/usePlannerStore';
 
 export interface PlannerPageProps {
   onBack: () => void; // To go back to the major selection page
@@ -30,10 +30,17 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
     selectedProgramIndex,
     switchProgramme,
     warnings
-  } = usePlanner();
+  } = usePlannerStore();
   const theme = useTheme();
   const upLg = useMediaQuery(theme.breakpoints.up('lg'));
   const [hideWarn, setHideWarn] = useState(false); // control hiding warning banner
+
+  // makes the warning banner appear again whenever the warnings change
+  useEffect(() => {
+    if (warnings.length > 0) {
+      setHideWarn(false);
+    }
+  }, [warnings]);
 
   // Provider not mounted yet
   if (!payloads.length) {
@@ -43,6 +50,8 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
       </Box>
     );
   }
+
+  console.log("payload: ", payload);
 
   return (
     <Box p={4}>
@@ -82,7 +91,14 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
         gridTemplateColumns={upLg ? '2fr 1fr' : '1fr'}
       >
         {/* Requirement sections */}
-        <Box border="1px solid #ccc" borderRadius={2} p={3}>
+        <Box 
+          border="1px solid #ccc" 
+          borderRadius={2} 
+          p={3} 
+          sx={{ 
+            maxHeight: upLg ? 'calc(100vh - 150px)' : 'none', // fix height, to set the height properly in the future
+            overflowY: upLg ? 'auto' : 'visible', // make scrollable
+          }}>
           {payload.requirements.map(sec => (
             <RequirementBlock key={sec.requirementKey} block={sec} />
           ))}
@@ -94,7 +110,7 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
             Overall Progress
           </Typography>
           <Divider sx={{ mb: 2 }} />
-          <ProgressGraph /> 
+          <ProgressGraph />
         </Box>
       </Box>
     </Box>

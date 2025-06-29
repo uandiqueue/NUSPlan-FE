@@ -1,8 +1,8 @@
 import { CircularProgress, Box, Typography } from "@mui/material";
-import { usePlanner } from "../store/usePlanner";
+import { usePlannerStore } from "../store/usePlannerStore";
 
 export default function ProgressGraph() {
-  const { payload, progress } = usePlanner();
+  const { payload, progress } = usePlannerStore();
 
   // Compute overall progress (sum of have / need across all sections)
   const sections = payload.requirements.map(sec => sec.requirementKey);

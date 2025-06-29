@@ -9,7 +9,8 @@ import { prettify } from './prettyPrereq';
 export function validateSelection(
     picked: ModuleCode[],
     flat: LookupTable,
-    fe2be: Record<string, string> // REDUNDANT past relics
+    fe2be: Record<string, string>, // REDUNDANT past relics
+    chosen: { course: { courseCode: string }, kind?: string }[]
 ) {
     //exportJson(flat, "Lookup table for validation"); // DEBUG
     //console.log(`Validating selection: ${picked.join(', ')}`); // DEBUG
@@ -17,9 +18,23 @@ export function validateSelection(
 
     // Prereq & preclusion dependency maps
     const { prereqOf, precludeOf } = buildDependencyMaps(pickedSet, flat);
+    const warnings: string[] = [];
+
+    // Duplication warnings
+    const chosenCount: Record<string, number> = {};
+    chosen
+      .filter(c => c.kind !== "exact")
+      .forEach(c => {
+        const code = c.course.courseCode;
+        chosenCount[code] = (chosenCount[code] || 0) + 1;
+      });
+    Object.entries(chosenCount).forEach(([code, count]) => {
+      if (count > 1) {
+        warnings.push(`Duplicate course selected: ${code}`);
+      }
+    });
 
     // Prerequisite warnings
-    const warnings: string[] = [];
     for (const code of picked) {
         const rule = flat.prereqs?.[code];
         if (!prereqSatisfied(pickedSet, rule)) {

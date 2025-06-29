@@ -10,7 +10,7 @@ import AddMinor from "../components/AddMinor";
 import { populateModules } from "../api/populate";
 import type { Programme, PopulatedProgramPayload } from "../types/shared/populator";
 import PlannerPage from "./PlannerPage";
-import { usePlanner } from "../store/usePlanner";
+import { usePlannerStore } from "../store/usePlannerStore";
 import type { LookupTable } from "../types/feValidator";
 import { normalisePayload } from "../services/validator/normalise";
 import { exportJson } from "../services/tester";
@@ -93,7 +93,7 @@ export default function SelectMajorPage() {
       const fe2beList: Record<string, string>[] = lookups.map(buildFEtoBEMap);
 
       // Load global planner store
-      usePlanner.getState().loadProgrammes(payloads, lookups, fe2beList);
+      usePlannerStore.getState().loadProgrammes(payloads, lookups, fe2beList);
       setLoaded(true);
     } catch (err) {
       console.error(err);

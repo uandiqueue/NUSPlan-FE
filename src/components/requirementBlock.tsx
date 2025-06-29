@@ -1,11 +1,11 @@
 import type { RequirementSection } from '../types/shared/populator';
 import { BoxRenderer } from './boxRenderer';
-import { usePlanner } from '../store/usePlanner';
+import { usePlannerStore } from '../store/usePlannerStore';
 import { Box, Typography } from "@mui/material";
 
 // Renders a single UI section block (“Core Electives” etc.)
 export function RequirementBlock({ block }: { block: RequirementSection }) {
-  const progressFn = usePlanner(state => state.progress); // gets function only once
+  const progressFn = usePlannerStore(state => state.progress); // gets function only once
   const { have, need } = progressFn(block.requirementKey); // call only once
 
   return (

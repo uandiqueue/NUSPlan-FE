@@ -15,7 +15,7 @@ export interface ValidationSnapshot {
     progress: (feKey: string) => Progress;
 }
 
-export interface Choice { boxKey: string; course: CourseInfo; }
+export interface Choice { boxKey: string; course: CourseInfo; kind: "exact" | "dropdown" | "altPath"; }
 
 export interface ProgrammeSlice {
     payload: PopulatedProgramPayload;
@@ -53,6 +53,7 @@ export interface PlannerState {
         course: CourseInfo,
         boxKey: string,
         requirementKey: string,
+        kind: "exact" | "dropdown" | "altPath",
         siblings?: string[]
     ) => void;
     canPick: (course: CourseInfo) => boolean;

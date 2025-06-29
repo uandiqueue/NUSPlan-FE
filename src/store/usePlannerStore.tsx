@@ -1,27 +1,53 @@
 import { create } from 'zustand';
 import type { LookupTable, TagStripMap, RequirementNodeInfo } from '../types/feValidator';
-import type { PopulatedProgramPayload, CourseInfo } from '../types/shared/populator';
+import type { PopulatedProgramPayload, CourseInfo, CourseBox } from '../types/shared/populator';
 import type { ModuleCode } from '../types/shared/nusmods-types';
 import { validateSelection } from '../services/validator/validateSelection';
-import type { 
+import type {
     ValidationSnapshot,
     Choice,
     ProgrammeSlice,
     PlannerState
- } from '../types/ui';
+} from '../types/ui';
 import { exportJson } from '../services/tester';
 
-/* 
-Multi‑programme planner store:
-- handles multiple lookup tables (majors/minors)
-- keeps a separate <picked Set> for each programme
-- derives validation results for each programme from the union of
-all selected modules (so cross‑programme clashes are detected)
-*/
+// Helper function: Collect all exact box choices
+function collectExactBoxChoices(payload: PopulatedProgramPayload): Choice[] {
+    const choices: Choice[] = [];
+    const visitBoxes = (boxes: CourseBox[]) => {
+        for (const box of boxes) {
+            if (box.kind === "exact") {
+                choices.push({ boxKey: box.boxKey, course: box.course, kind: "exact" });
+            }
+            /*
+            if (box.kind === "altPath") {
+                for (const path of box.paths) {
+                    visitBoxes(path.boxes);
+                }
+            }
+             */
+        }
+    };
+    for (const section of payload.requirements) {
+        visitBoxes(section.boxes);
+    }
+    return choices;
+}
 
-/* STORE */
-export const usePlanner = create<PlannerState>((set, get) => ({
+// Helper function: Validation Snapshot
+function computeValidations(programmes: ProgrammeSlice[]): ValidationSnapshot[] {
+    if (!programmes.length) return [];
+    // Union of all selected modules
+    const unionPicked = new Set<ModuleCode>();
+    programmes.forEach(p => p.picked.forEach(c => unionPicked.add(c)));
+    const pickedArr = [...unionPicked];
+    // Validate each programme in isolation but feed union list
+    return programmes.map(p =>
+        validateSelection(pickedArr, p.lookup, p.fe2be, p.chosen)
+    );
+}
 
+export const usePlannerStore = create<PlannerState>()((set, get) => ({
     // State
     programmes: [],
     selectedProgramIndex: 0,
@@ -49,16 +75,21 @@ export const usePlanner = create<PlannerState>((set, get) => ({
 
     // Actions
     loadProgrammes: (payloads, lookups, fe2beList) => {
-        const programmes: ProgrammeSlice[] = payloads.map((p, i) => ({
-            payload: p,
-            lookup: lookups[i],
-            fe2be: fe2beList[i],
-            picked: new Set<ModuleCode>(p.lookup.selected ?? []),
-            chosen: [], // nothing picked yet in dropdown
-        }));
-        // run validation once per programme using union of picks
+        const programmes: ProgrammeSlice[] = payloads.map((p, i) => {
+            const exactChoices = collectExactBoxChoices(p);
+            const pickedCodes = [
+                ...(p.lookup.selected ?? []),
+                ...exactChoices.map(c => c.course.courseCode)
+            ];
+            return {
+                payload: p,
+                lookup: lookups[i],
+                fe2be: fe2beList[i],
+                picked: new Set<ModuleCode>(pickedCodes),
+                chosen: [...exactChoices], // read-only courses
+            };
+        });
         const validations = computeValidations(programmes);
-        // inject derived fields for first tab
         set({
             programmes,
             selectedProgramIndex: 0,
@@ -68,11 +99,11 @@ export const usePlanner = create<PlannerState>((set, get) => ({
             chosen: programmes[0].chosen,
             payloads: programmes.map(p => p.payload),
             payload: programmes[0].payload,
-            nodeInfo: lookups[0].nodeInfo,
+            nodeInfo: programmes[0].lookup.nodeInfo,
         });
     },
 
-    switchProgramme: (index) => {
+    switchProgramme: (index: number) => {
         const programmes = get().programmes;
         if (!programmes.length) return;
         const validations = computeValidations(programmes);
@@ -87,69 +118,63 @@ export const usePlanner = create<PlannerState>((set, get) => ({
         });
     },
 
-    toggle: (course, boxKey, requirementKey, siblings) => {
-        //console.log("TOGGLED:", course.courseCode); // DEBUG
-
+    toggle: (
+        course: CourseInfo,
+        boxKey: string,
+        requirementKey: string,
+        kind: "exact" | "dropdown" | "altPath",
+        siblings?: string[],
+    ) => {
         const state = get();
         const idx = state.selectedProgramIndex;
         const currentProg = state.programmes[idx];
 
-        // 1. Clone picked and chosen
+        // Clone picked and chosen
         const newPicked = new Set([...currentProg.picked]);
-        //console.log("Current picked modules:", [...newPicked]); // DEBUG
         const newChosen = currentProg.chosen.filter(c => c.boxKey !== boxKey);
-        //console.log("Current chosen courses:", newChosen); // DEBUG
 
-        // 2. Early-out if validator forbids the pick
+        // Early-out if validator forbids the pick
         if (state.blocked.has(course.courseCode)) {
-            // precluded or exceeds max cap: ignore the click
-            console.warn(`Cannot pick ${course.courseCode}: blocked by validator.`); // DEBUG
+            console.warn(`Cannot pick ${course.courseCode}: blocked by validator.`);
             return;
         }
 
-        // 3. Check if the course is already selected in this dropdown
-        //console.log("Checking if course is already selected in dropdown:", course.courseCode); // DEBUG
+        // Check if the course is already selected in this dropdown
         const already = currentProg.chosen.find(c => c.boxKey === boxKey);
 
-        // helper: does some other box still hold this module
+        // Helper: does some other box still hold this module
         const stillChosenElsewhere = (code: string, arr: Choice[]) =>
             arr.some(c => c.course.courseCode === code);
 
         if (already && already.course.courseCode === course.courseCode) {
-            // If same course, unselect
-            // remove A only if no other box contains A after we drop this one
-            if (!stillChosenElsewhere(course.courseCode, newChosen))
+            // If same course, unselect unless it's an exact
+            if (already.kind !== "exact" && !stillChosenElsewhere(course.courseCode, newChosen)) {
                 newPicked.delete(course.courseCode);
+            }
         } else {
             // Replace with new course in dropdown
-            //console.log("Course is not already selected, adding to dropdown:", course.courseCode); // DEBUG
-            if (already &&
-                !stillChosenElsewhere(already.course.courseCode, newChosen))
-                newPicked.delete(already.course.courseCode);   // remove A only if unique
-            newChosen.push({ boxKey, course });
-            console.log(newChosen); // DEBUG
-            //console.log(boxKey, "now has course:", course.courseCode); // DEBUG
+            if (already && already.kind !== "exact" && !stillChosenElsewhere(already.course.courseCode, newChosen))
+                newPicked.delete(already.course.courseCode); // remove only if unique and not exact
+            newChosen.push({ boxKey, course, kind });
             newPicked.add(course.courseCode);
-            console.log("Current picked modules:", [...newPicked]); // DEBUG
         }
 
-        // 4. Create a completely new ProgrammeSlice object
+        // Create a completely new ProgrammeSlice object
         const updatedProgramme: ProgrammeSlice = {
             ...currentProg,
             picked: newPicked,
             chosen: newChosen,
         };
-        //console.log("Updated programme:", updatedProgramme); // DEBUG
 
-        // 5. Replace programme in list
+        // Replace programme in list
         const nextProgrammes = [...state.programmes];
         nextProgrammes[idx] = updatedProgramme;
 
-        // 6. Recompute validations using all selected modules
+        // Recompute validations using all selected modules
         const validations = computeValidations(nextProgrammes);
         const curVal = validations[idx];
 
-        // 7. Update Zustand store
+        // Update Zustand store
         set({
             programmes: nextProgrammes,
             warnings: curVal.warnings,
@@ -161,39 +186,14 @@ export const usePlanner = create<PlannerState>((set, get) => ({
         });
     },
 
-    canPick: (course) => {
+    canPick: (course: CourseInfo) => {
         const { blocked } = get();
         return !blocked.has(course.courseCode);
     },
 
-    isDuplicate: (courseCode, boxKey) => {
-        // same course picked in a different dropdown inside this programme
+    isDuplicate: (courseCode: string, boxKey: string) => {
         const { programmes, selectedProgramIndex } = get();
         const picks = programmes[selectedProgramIndex]?.chosen ?? [];
         return picks.some(c => c.course.courseCode === courseCode && c.boxKey !== boxKey);
     }
-
 }));
-
-// Helpers
-
-function computeValidations(programmes: ProgrammeSlice[]): ValidationSnapshot[] {
-    if (!programmes.length) return [];
-
-    // 1. union of all selected modules (cross-programme clashes)
-    const unionPicked = new Set<ModuleCode>();
-    programmes.forEach(p => p.picked.forEach(c => unionPicked.add(c)));
-    const pickedArr = [...unionPicked];
-
-    console.log("Union of picked modules:", pickedArr); // DEBUG
-    /* 
-    programmes.forEach(p => {
-        exportJson(p.lookup, `LookupTable for ${p.payload.metadata.name}`); // DEBUG
-    });
-     */
-    // 2. validate each programme in isolation but feed union list
-    //exportJson(programmes[0].fe2be, "fe2be"); // DEBUG
-    return programmes.map(p =>
-        validateSelection(pickedArr, p.lookup, p.fe2be)
-    );
-}
