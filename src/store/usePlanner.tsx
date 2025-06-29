@@ -3,6 +3,12 @@ import type { LookupTable, TagStripMap, RequirementNodeInfo } from '../types/feV
 import type { PopulatedProgramPayload, CourseInfo } from '../types/shared/populator';
 import type { ModuleCode } from '../types/shared/nusmods-types';
 import { validateSelection } from '../services/validator/validateSelection';
+import type { 
+    ValidationSnapshot,
+    Choice,
+    ProgrammeSlice,
+    PlannerState
+ } from '../types/ui';
 import { exportJson } from '../services/tester';
 
 /* 
@@ -12,65 +18,6 @@ Multi‑programme planner store:
 - derives validation results for each programme from the union of
 all selected modules (so cross‑programme clashes are detected)
 */
-
-/* TYPES */
-export interface Progress { 
-    have: number; 
-    need: number; 
-    percent: number; 
-}
-
-interface ValidationSnapshot {
-    warnings: string[];
-    blocked: Set<ModuleCode>;
-    stripped: TagStripMap;
-    progress: (feKey: string) => Progress;
-}
-
-interface Choice { boxKey: string; course: CourseInfo; }
-
-interface ProgrammeSlice {
-    payload: PopulatedProgramPayload;
-    lookup: LookupTable;
-    // FE=>BE key translation dictionaries
-    // FE keys (colon‑separated, prefixed by programme id) power the UI tree
-    // BE keys (original requirementKey/boxKey) stay intact for FE-BE round‑trips
-    fe2be: Record<string, string>;
-    picked: Set<ModuleCode>; // Modules selected in this programme
-    chosen: Choice[]; // Mapping dropdown-boxKey -> chosen Course
-}
-
-interface PlannerState {
-    // Core
-    programmes: ProgrammeSlice[]; // one slice per major/minor
-    selectedProgramIndex: number; // active tab
-
-    // Derived (from current tab)
-    warnings: string[];
-    blocked: Set<ModuleCode>;
-    progress: (feKey: string) => Progress;
-    chosen: Choice[];
-    payloads: PopulatedProgramPayload[];
-    payload: PopulatedProgramPayload;
-    nodeInfo: Record<string, RequirementNodeInfo>;
-
-    // Actions
-    loadProgrammes: (
-        payloads: PopulatedProgramPayload[],
-        lookups: LookupTable[],
-        fe2beList: Record<string, string>[]
-    ) => void;
-    switchProgramme: (index: number) => void;
-    toggle: (
-        course: CourseInfo,
-        boxKey: string,
-        requirementKey: string,
-        siblings?: string[]
-    ) => void;
-    canPick: (course: CourseInfo) => boolean;
-    isDuplicate: (courseCode: string, boxKey: string) => boolean;
-}
-
 
 /* STORE */
 export const usePlanner = create<PlannerState>((set, get) => ({
@@ -153,20 +100,40 @@ export const usePlanner = create<PlannerState>((set, get) => ({
         const newChosen = currentProg.chosen.filter(c => c.boxKey !== boxKey);
         //console.log("Current chosen courses:", newChosen); // DEBUG
 
+        // 2. Early-out if validator forbids the pick
+        if (state.blocked.has(course.courseCode)) {
+            // precluded or exceeds max cap: ignore the click
+            console.warn(`Cannot pick ${course.courseCode}: blocked by validator.`); // DEBUG
+            return;
+        }
+
+        // 3. Check if the course is already selected in this dropdown
+        //console.log("Checking if course is already selected in dropdown:", course.courseCode); // DEBUG
         const already = currentProg.chosen.find(c => c.boxKey === boxKey);
+
+        // helper: does some other box still hold this module
+        const stillChosenElsewhere = (code: string, arr: Choice[]) =>
+            arr.some(c => c.course.courseCode === code);
 
         if (already && already.course.courseCode === course.courseCode) {
             // If same course, unselect
-            newPicked.delete(course.courseCode);
+            // remove A only if no other box contains A after we drop this one
+            if (!stillChosenElsewhere(course.courseCode, newChosen))
+                newPicked.delete(course.courseCode);
         } else {
             // Replace with new course in dropdown
+            //console.log("Course is not already selected, adding to dropdown:", course.courseCode); // DEBUG
+            if (already &&
+                !stillChosenElsewhere(already.course.courseCode, newChosen))
+                newPicked.delete(already.course.courseCode);   // remove A only if unique
             newChosen.push({ boxKey, course });
-            siblings?.forEach(code => newPicked.delete(code));
+            console.log(newChosen); // DEBUG
+            //console.log(boxKey, "now has course:", course.courseCode); // DEBUG
             newPicked.add(course.courseCode);
-            //console.log("Current picked modules:", [...newPicked]); // DEBUG
+            console.log("Current picked modules:", [...newPicked]); // DEBUG
         }
 
-        // 2. Create a completely new ProgrammeSlice object
+        // 4. Create a completely new ProgrammeSlice object
         const updatedProgramme: ProgrammeSlice = {
             ...currentProg,
             picked: newPicked,
@@ -174,15 +141,15 @@ export const usePlanner = create<PlannerState>((set, get) => ({
         };
         //console.log("Updated programme:", updatedProgramme); // DEBUG
 
-        // 3. Replace programme in list
+        // 5. Replace programme in list
         const nextProgrammes = [...state.programmes];
         nextProgrammes[idx] = updatedProgramme;
 
-        // 4. Recompute validations using all selected modules
+        // 6. Recompute validations using all selected modules
         const validations = computeValidations(nextProgrammes);
         const curVal = validations[idx];
 
-        // 5. Update Zustand store
+        // 7. Update Zustand store
         set({
             programmes: nextProgrammes,
             warnings: curVal.warnings,
@@ -218,7 +185,7 @@ function computeValidations(programmes: ProgrammeSlice[]): ValidationSnapshot[] 
     programmes.forEach(p => p.picked.forEach(c => unionPicked.add(c)));
     const pickedArr = [...unionPicked];
 
-    //console.log("Union of picked modules:", pickedArr); // DEBUG
+    console.log("Union of picked modules:", pickedArr); // DEBUG
     /* 
     programmes.forEach(p => {
         exportJson(p.lookup, `LookupTable for ${p.payload.metadata.name}`); // DEBUG

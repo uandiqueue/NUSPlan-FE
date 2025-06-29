@@ -1,5 +1,6 @@
 import type { LookupTable, TagStripMap, Usage } from '../../types/feValidator';
 import { ModuleCode } from '../../types/shared/nusmods-types';
+import { exportJson } from '../tester';
 import { buildDependencyMaps } from './dependencyMaps';
 import { prereqSatisfied } from './prereqChecker';
 import { prettify } from './prettyPrereq';
@@ -10,6 +11,8 @@ export function validateSelection(
     flat: LookupTable,
     fe2be: Record<string, string> // REDUNDANT past relics
 ) {
+    //exportJson(flat, "Lookup table for validation"); // DEBUG
+    //console.log(`Validating selection: ${picked.join(', ')}`); // DEBUG
     const pickedSet = new Set(picked);
 
     // Prereq & preclusion dependency maps
@@ -28,14 +31,23 @@ export function validateSelection(
     // Block modules that clash (preclusions)
     const blocked = new Set<ModuleCode>();
     picked.forEach((code) => {
-        (flat.preclusions[code] ?? []).forEach((clash) => blocked.add(clash));
-        console.log(`Blocked ${flat.preclusions[code]} due to preclusions of ${code}`); // DEBUG
+        (flat.preclusions[code] ?? []).forEach((clash) => {
+            if (clash) {
+                blocked.add(clash);
+                //console.log(`Blocked ${clash} due to preclusions of ${code}`); // DEBUG
+            }
+        });
+        if ((flat.preclusions[code] ?? []).some(c => !c)) {
+            console.warn(`Warning: ${code} has undefined preclusion entries`); // In case of NUSMods lack of CourseInfo
+        }
     });
+    console.log(`Blocked: ${Array.from(blocked).join(', ')}`); // DEBUG
 
     // Max-rule tag stripping
     const strip: TagStripMap = {};
     const usage: Record<string, Usage> = {};
 
+    console.log(`Picked modules: ${picked.join(', ')}`); // DEBUG
     picked.forEach((code) => {
         (flat.maxRequirements[code] ?? []).forEach((rule) => {
             const rec = (usage[rule.tag] ??= {
@@ -44,45 +56,110 @@ export function validateSelection(
                 rule,
                 pickedCodes: [],
             });
+            console.log(`Max rule ${rule.tag} for ${code})`); // DEBUG
+            console.log(`Old usage: ${rec.used}, max: ${rec.max}`); // DEBUG
             rec.used += flat.units[code] || 0;
+            console.log(`Used ${rec.used} for ${rule.tag}`); // DEBUG
             rec.pickedCodes.push(code);
+            console.log(rec.pickedCodes); // DEBUG
         });
     });
 
-Object.values(usage).forEach(({ used, max, rule, pickedCodes }) => {
-  if (used > max) {                         // strictly greater, not ≥
-    let surplus = used - max;
-    // Strip tags from picked courses, newest first
-    for (let i = pickedCodes.length - 1; i >= 0 && surplus > 0; i--) {
-      const code = pickedCodes[i];
-      const mc   = flat.units[code] || 0;
-      strip[code] = [ ...(strip[code] ?? []), rule.tag ];
-      blocked.add(code);                    // can’t pick again
-      surplus -= mc;
-    }
-    warnings.push(
-      `Exceeded ${max} MC for ${rule.tag.replace(/_max.*/, '')}; ` +
-      `extra modules wont count.`
-    );
-  }
-});
+    console.log(`Usage of max rules: ${JSON.stringify(usage)}`); // DEBUG
+    //exportJson(usage, "Usage of max rules"); // DEBUG
+
+    Object.values(usage).forEach(({ used, max, rule, pickedCodes }) => {
+        console.log(`Checking max rule ${rule.tag}: used ${used}, max ${max}`); // DEBUG
+        if (used > max) {
+            let surplus = used - max;
+
+            // Strip tags from picked courses, newest first
+            for (let i = pickedCodes.length - 1; i >= 0 && surplus > 0; i--) {
+                const code = pickedCodes[i];
+                const mc = flat.units[code] || 0;
+
+                // Derive parent tag by stripping the -max_ suffix
+                const parentPrefix = rule.tag.replace(/-max_.*/, '');
+                console.log(`Stripping ${parentPrefix} from ${code}`); // DEBUG
+
+                // Collect all FE requirement keys governed by this max rule
+                const affectedKeys = Object.keys(flat.requiredUnits).filter(
+                    k => k.startsWith(parentPrefix) && !k.includes('-max_')
+                );
+
+                // Strip these requirement tags from the course
+                strip[code] = [ ...(strip[code] ?? []), ...affectedKeys ];
+                blocked.add(code);
+
+                surplus -= mc;
+            }
+
+            warnings.push(
+                `Exceeded ${max} MC for ${rule.tag.replace(/_max.*/, '')}; ` +
+                `extra modules won't count.`
+            );
+        }
+    });
 
     // Progress helper
     function progress(feKey: string) {
         // 1. units required (FE map) 
+        //console.log(`Calculating progress for ${feKey}`); // DEBUG
         const need = flat.requiredUnits[feKey] ?? 0;
 
-        // 2. translate FE => BE once
+        // 2. translate FE => BE once (REDUNDANT past relics)
         const beKey = fe2be[feKey];
         if (!beKey) {
-        console.warn(`No BE key found for FE key: ${feKey}`);
-        return { have: 0, need: need, percent: 0 };
+            console.warn(`No BE key found for FE key: ${feKey}`);
+            return { have: 0, need: need, percent: 0 };
+        }
+
+        // Special case: unrestricted electives logic
+        if (feKey.endsWith('-unrestricted_electives')) {
+            const allPicked = Array.from(pickedSet);
+            const totalUnits = allPicked.reduce((sum, code) => sum + (flat.units[code] || 0), 0);
+
+            const isNotStripped = (code: string) => {
+                const tags = strip[code] ?? [];
+                return !tags.some(tag => tag === feKey || tag.startsWith(feKey + '-'));
+            };
+
+            // Step 1: collect codes already used by other requirements
+            const usedByOthers = new Set<string>();
+            Object.keys(flat.requiredUnits).forEach(key => {
+                if (key === feKey) return;
+                const codes = flat.modulesByRequirement[fe2be[key]] ?? [];
+                codes.forEach(code => {
+                    if (pickedSet.has(code) && isNotStripped(code)) {
+                        usedByOthers.add(code);
+                    }
+                });
+            });
+
+            // Step 2: only count overflow MCs (above 120)
+            let overflow = Math.max(0, totalUnits - 120);
+            let ueUnits = 0;
+            for (const code of allPicked) {
+                if (usedByOthers.has(code)) continue;
+                if (!isNotStripped(code)) continue;
+
+                const mc = flat.units[code] || 0;
+                if (overflow <= 0) break;
+
+                const add = Math.min(mc, overflow);
+                ueUnits += add;
+                overflow -= add;
+            }
+
+            return { have: ueUnits, need, percent: need ? ueUnits / need : 1 };
         }
 
         // 3. units already earned
         const have = (flat.modulesByRequirement[beKey] ?? [])
             .filter((c) => pickedSet.has(c))
-            .filter((c) => !(strip[c]?.includes(feKey)))
+            .filter((c) =>
+                !(strip[c]?.some(tag => tag === feKey || tag.startsWith(feKey + '-max_')))
+            )
             .reduce((sum, c) => sum + (flat.units[c] || 0), 0);
 
         //console.log(`Progress for ${feKey}: need ${need}, have ${have}`); // DEBUG

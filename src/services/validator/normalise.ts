@@ -1,18 +1,12 @@
 import { exportJson } from "../tester";
 import type { PopulatedProgramPayload, CourseBox } from '../../types/shared/populator';
 import type { ModuleCode } from '../../types/shared/nusmods-types';
-import type {
-    TagMap,
-    UnitMap,
-    PrereqMap,
-    MaxMap,
-    PreclusionMap,
-} from '../../types/shared/validator';
 import {
     LookupTable,
     RequirementNodeInfo,
     Logic,
 } from '../../types/feValidator';
+import { enforceRequirementPriority } from './requirementPriority';
 
 /* 
 Normalise one payload
@@ -139,6 +133,8 @@ export function normalisePayload(
         selected,
         version,
     } as LookupTable; // casting because LookupTable hasn’t fe2be/be2fe fields
+
+    enforceRequirementPriority(lookupTable);
 
     //exportJson("lookupTable.json", lookupTable); // DEBUG
 

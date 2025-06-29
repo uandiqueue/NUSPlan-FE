@@ -89,6 +89,7 @@ export default function SelectMajorPage() {
 
       // Transform lookups & maps
       const lookups: LookupTable[] = payloads.map(normalisePayload);
+      //exportJson(lookups, 'lookups.json'); // DEBUG
       const fe2beList: Record<string, string>[] = lookups.map(buildFEtoBEMap);
 
       // Load global planner store

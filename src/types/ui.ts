@@ -1,46 +1,60 @@
-import { PopulatedProgramPayload, CourseInfo } from "./shared/populator";
+import { TagStripMap, LookupTable, RequirementNodeInfo } from "./feValidator";
 import { ModuleCode } from "./shared/nusmods-types";
+import { CourseInfo, PopulatedProgramPayload } from "./shared/populator";
 
-export interface UserSelection {
-  course: CourseInfo;
-  boxKey: string;
-  requirementKey: string;
+export interface Progress { 
+    have: number; 
+    need: number; 
+    percent: number; 
 }
 
-export interface PlannerContextValue {
-  // All programs
-  payloads: PopulatedProgramPayload[];
+export interface ValidationSnapshot {
+    warnings: string[];
+    blocked: Set<ModuleCode>;
+    stripped: TagStripMap;
+    progress: (feKey: string) => Progress;
+}
 
-  // Currently selected program
-  payload: PopulatedProgramPayload;
+export interface Choice { boxKey: string; course: CourseInfo; }
 
-  // To change tabs (Primary Major, Secondary Major, Minors) in the PlannerPage
-  selectedProgramIndex: number;
-  setSelectedProgramIndex: (i: number) => void;
+export interface ProgrammeSlice {
+    payload: PopulatedProgramPayload;
+    lookup: LookupTable;
+    // FE=>BE key translation dictionaries
+    // FE keys (colon‑separated, prefixed by programme id) power the UI tree
+    // BE keys (original requirementKey/boxKey) stay intact for FE-BE round‑trips
+    fe2be: Record<string, string>;
+    picked: Set<ModuleCode>; // Modules selected in this programme
+    chosen: Choice[]; // Mapping dropdown-boxKey -> chosen Course
+}
 
-  // The courses the user has actually selected right now, changed CourseInfo[] to UserSelection[]
-  chosen: UserSelection[];
+export interface PlannerState {
+    // Core
+    programmes: ProgrammeSlice[]; // one slice per major/minor
+    selectedProgramIndex: number; // active tab
 
-  // Master toggle: called on any click
-  toggle(course: CourseInfo, boxKey: string, reqreuimentKey: string, dropdownGroup?: string[]): void;
+    // Derived (from current tab)
+    warnings: string[];
+    blocked: Set<ModuleCode>;
+    progress: (feKey: string) => Progress;
+    chosen: Choice[];
+    payloads: PopulatedProgramPayload[];
+    payload: PopulatedProgramPayload;
+    nodeInfo: Record<string, RequirementNodeInfo>;
 
-  // Should a course appear clickable/disabled?
-  canPick(course: CourseInfo): boolean;
-
-  // Requirement-fulfilment helper: call with a requirementKey
-  progress: (rk: string) => { have: number; need: number; percent: number };
-
-  // Human-readable prereq warnings after a course is selected
-  warnings: string[];
-
-  // CourseCodes that are currently precluded by what is chosen
-  blocked: Set<ModuleCode>;
-
-  // Tag-stripping map produced by max-cap logic
-  // courseCode -> Tags that NO LONGER count for this programme
-  stripped: Record<ModuleCode, string[]>;
-
-  // Duplicate detection helpers for dropdowns
-  isDuplicate: (courseCode: string, boxKey: string) => boolean;
-  duplicateDropdowns: () => Array<{ courseCode: string; boxKeys: string[] }>;
+    // Actions
+    loadProgrammes: (
+        payloads: PopulatedProgramPayload[],
+        lookups: LookupTable[],
+        fe2beList: Record<string, string>[]
+    ) => void;
+    switchProgramme: (index: number) => void;
+    toggle: (
+        course: CourseInfo,
+        boxKey: string,
+        requirementKey: string,
+        siblings?: string[]
+    ) => void;
+    canPick: (course: CourseInfo) => boolean;
+    isDuplicate: (courseCode: string, boxKey: string) => boolean;
 }
