@@ -51,7 +51,7 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
     );
   }
 
-  console.log("payload: ", payload);
+  // console.log("payload: ", payload); // DEBUG
 
   return (
     <Box p={4}>

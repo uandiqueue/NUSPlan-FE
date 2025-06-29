@@ -20,20 +20,15 @@ export interface Choice { boxKey: string; course: CourseInfo; kind: "exact" | "d
 export interface ProgrammeSlice {
     payload: PopulatedProgramPayload;
     lookup: LookupTable;
-    // FE=>BE key translation dictionaries
-    // FE keys (colon‑separated, prefixed by programme id) power the UI tree
-    // BE keys (original requirementKey/boxKey) stay intact for FE-BE round‑trips
-    fe2be: Record<string, string>;
+    fe2be: Record<string, string>; // REDUNDANT ancient relics (not yet optimised out)
     picked: Set<ModuleCode>; // Modules selected in this programme
     chosen: Choice[]; // Mapping dropdown-boxKey -> chosen Course
 }
 
 export interface PlannerState {
-    // Core
     programmes: ProgrammeSlice[]; // one slice per major/minor
     selectedProgramIndex: number; // active tab
-
-    // Derived (from current tab)
+    // Derived (from programmes)
     warnings: string[];
     blocked: Set<ModuleCode>;
     progress: (feKey: string) => Progress;
@@ -41,7 +36,6 @@ export interface PlannerState {
     payloads: PopulatedProgramPayload[];
     payload: PopulatedProgramPayload;
     nodeInfo: Record<string, RequirementNodeInfo>;
-
     // Actions
     loadProgrammes: (
         payloads: PopulatedProgramPayload[],

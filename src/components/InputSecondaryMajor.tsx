@@ -37,6 +37,9 @@ function InputSecondaryMajor() {
 
   const isError = secondaryMajor !== "" && isDuplicate(secondaryMajor);
 
+  // Data for other majors are not available
+  const tempSecondaryList = ["Life Sciences"];
+
   return (
     <>
       {showSecondarySelect ? (
@@ -48,7 +51,8 @@ function InputSecondaryMajor() {
               label="Select Secondary Major"
               onChange={handleSelectSecondary}
             >
-              {majorList.map((major) => (
+              {/* Changed majorList to tempSecondaryList as data for other majors are not available */}
+              {tempSecondaryList.map((major) => (
                 <MenuItem
                   key={major}
                   value={major}

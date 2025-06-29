@@ -15,8 +15,6 @@ export function validateSelection(
     //exportJson(flat, "Lookup table for validation"); // DEBUG
     //console.log(`Validating selection: ${picked.join(', ')}`); // DEBUG
     const pickedSet = new Set(picked);
-
-    // Prereq & preclusion dependency maps
     const { prereqOf, precludeOf } = buildDependencyMaps(pickedSet, flat);
     const warnings: string[] = [];
 
@@ -56,13 +54,13 @@ export function validateSelection(
             console.warn(`Warning: ${code} has undefined preclusion entries`); // In case of NUSMods lack of CourseInfo
         }
     });
-    console.log(`Blocked: ${Array.from(blocked).join(', ')}`); // DEBUG
+    // console.log(`Blocked: ${Array.from(blocked).join(', ')}`); // DEBUG
 
     // Max-rule tag stripping
     const strip: TagStripMap = {};
     const usage: Record<string, Usage> = {};
 
-    console.log(`Picked modules: ${picked.join(', ')}`); // DEBUG
+    // console.log(`Picked modules: ${picked.join(', ')}`); // DEBUG
     picked.forEach((code) => {
         (flat.maxRequirements[code] ?? []).forEach((rule) => {
             const rec = (usage[rule.tag] ??= {
@@ -71,16 +69,16 @@ export function validateSelection(
                 rule,
                 pickedCodes: [],
             });
-            console.log(`Max rule ${rule.tag} for ${code})`); // DEBUG
-            console.log(`Old usage: ${rec.used}, max: ${rec.max}`); // DEBUG
+            // console.log(`Max rule ${rule.tag} for ${code})`); // DEBUG
+            // console.log(`Old usage: ${rec.used}, max: ${rec.max}`); // DEBUG
             rec.used += flat.units[code] || 0;
-            console.log(`Used ${rec.used} for ${rule.tag}`); // DEBUG
+            // console.log(`Used ${rec.used} for ${rule.tag}`); // DEBUG
             rec.pickedCodes.push(code);
-            console.log(rec.pickedCodes); // DEBUG
+            // console.log(rec.pickedCodes); // DEBUG
         });
     });
 
-    console.log(`Usage of max rules: ${JSON.stringify(usage)}`); // DEBUG
+    // console.log(`Usage of max rules: ${JSON.stringify(usage)}`); // DEBUG
     //exportJson(usage, "Usage of max rules"); // DEBUG
 
     Object.values(usage).forEach(({ used, max, rule, pickedCodes }) => {
@@ -92,44 +90,34 @@ export function validateSelection(
             for (let i = pickedCodes.length - 1; i >= 0 && surplus > 0; i--) {
                 const code = pickedCodes[i];
                 const mc = flat.units[code] || 0;
-
-                // Derive parent tag by stripping the -max_ suffix
                 const parentPrefix = rule.tag.replace(/-max_.*/, '');
-                console.log(`Stripping ${parentPrefix} from ${code}`); // DEBUG
+                // console.log(`Stripping ${parentPrefix} from ${code}`); // DEBUG
 
                 // Collect all FE requirement keys governed by this max rule
                 const affectedKeys = Object.keys(flat.requiredUnits).filter(
                     k => k.startsWith(parentPrefix) && !k.includes('-max_')
                 );
-
                 // Strip these requirement tags from the course
                 strip[code] = [ ...(strip[code] ?? []), ...affectedKeys ];
                 blocked.add(code);
 
                 surplus -= mc;
             }
-
-            warnings.push(
-                `Exceeded ${max} MC for ${rule.tag.replace(/_max.*/, '')}; ` +
-                `extra modules won't count.`
-            );
+            warnings.push(`Exceeded ${max} MC for ${rule.tag.replace(/_max.*/, '')}`);
         }
     });
 
-    // Progress helper
     function progress(feKey: string) {
-        // 1. units required (FE map) 
-        //console.log(`Calculating progress for ${feKey}`); // DEBUG
         const need = flat.requiredUnits[feKey] ?? 0;
 
-        // 2. translate FE => BE once (REDUNDANT past relics)
+        // Translate FE-BE (REDUNDANT past relics)
         const beKey = fe2be[feKey];
         if (!beKey) {
             console.warn(`No BE key found for FE key: ${feKey}`);
             return { have: 0, need: need, percent: 0 };
         }
 
-        // Special case: unrestricted electives logic
+        // Handle unrestricted electives
         if (feKey.endsWith('-unrestricted_electives')) {
             const allPicked = Array.from(pickedSet);
             const totalUnits = allPicked.reduce((sum, code) => sum + (flat.units[code] || 0), 0);
@@ -139,7 +127,6 @@ export function validateSelection(
                 return !tags.some(tag => tag === feKey || tag.startsWith(feKey + '-'));
             };
 
-            // Step 1: collect codes already used by other requirements
             const usedByOthers = new Set<string>();
             Object.keys(flat.requiredUnits).forEach(key => {
                 if (key === feKey) return;
@@ -151,7 +138,6 @@ export function validateSelection(
                 });
             });
 
-            // Step 2: only count overflow MCs (above 120)
             let overflow = Math.max(0, totalUnits - 120);
             let ueUnits = 0;
             for (const code of allPicked) {
@@ -169,7 +155,6 @@ export function validateSelection(
             return { have: ueUnits, need, percent: need ? ueUnits / need : 1 };
         }
 
-        // 3. units already earned
         const have = (flat.modulesByRequirement[beKey] ?? [])
             .filter((c) => pickedSet.has(c))
             .filter((c) =>

@@ -16,10 +16,10 @@ export interface LookupTable extends LookupPayload {
 
 export type Logic = 'AND' | 'OR' | 'N_OF' | 'LEAF' | 'SECTION';
 export interface RequirementNodeInfo {
-    // AND / OR / N_OF / SECTION (Top-level) / LEAF (no children)
+    // AND/OR/N_OF/SECTION(Top-level)/LEAF(no children)
     logic: Logic;
     // Only for N_OF: how many must be chosen?
-    nOf?: number;
+    nOf?: number; // Not yet implemented
     // parent requirementKey (null for top-level sections)
     parent: string | null;
     // children requirementKeys (empty for leaves)

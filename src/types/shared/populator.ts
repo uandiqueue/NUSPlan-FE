@@ -1,19 +1,14 @@
 import { ProgramType, RequirementGroupType, ProgramMeta } from "./requirement";
 import { LookupPayload } from "./validator";
 
-/* 
-Page 1, Program Selection
-*/
+/* Page 1, Program Selection */
 // Expect the request body to have the following structure 
 export interface Programme {
     name: string;
     type: ProgramType;
 }
 
-
-/* 
-Page 2, Course Selection Pool (Populator)
-*/
+/* Page 2, Course Selection Pool (Populator) */
 // Expect the response body to have the following structure 
 export interface PopulatedProgramPayload {
     metadata: ProgramMeta; // For a single program, multiple payloads will be sent if multiple programs selected
@@ -95,10 +90,7 @@ export type TagMeta =
         count: number; // for UI display
         };
 
-
-/* 
-For backend 
-*/
+/* For backend */
 export interface CapRule { 
     tag: string; // e.g. "life_sciences-core_electives-level_1000_cap-..."
     maxUnits: number; 

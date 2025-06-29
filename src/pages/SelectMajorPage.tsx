@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Box, Typography, Button, Snackbar, CircularProgress } from "@mui/material";
+import { Box, Typography, Button, Snackbar, CircularProgress, Alert } from "@mui/material";
 import { useMajorStore } from "../store/useMajorStore";
 import { useUIStore } from "../store/useUIStore";
 import InputPrimaryMajor from "../components/InputPrimaryMajor";
@@ -81,6 +81,7 @@ export default function SelectMajorPage() {
     try {
       setLoading(true);
       const payloads: PopulatedProgramPayload[] = await populateModules(programmes);
+      //exportJson(payloads, 'payloads.json'); // DEBUG
 
       if (!payloads.length) {
         setErrorMessage('Backend returned no payload.');
@@ -117,10 +118,19 @@ export default function SelectMajorPage() {
 
     // Choose Major page
     return (
-        <Box p={4} maxWidth={580}>
+        <Box p={4} maxWidth={650} mx="auto">
             <Typography variant="h4" gutterBottom>
                 NUSPlan
             </Typography>
+
+            {/* Information banner */}
+            <Alert severity="info">
+              Please take note of the following restrictions:<br />
+                Possible choices for Primary Major: Life Sciences, Computer Science, Business Analytics.<br />
+                Possible choices for Secondary Major: Life Sciences only.<br />
+                Possible choices for Minors: Life Sciences, Bioinformatics<br />
+            </Alert>
+
 
             {/* Selectors */}
             <InputPrimaryMajor />

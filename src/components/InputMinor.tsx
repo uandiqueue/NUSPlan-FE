@@ -19,6 +19,9 @@ function InputMinor() {
     updateMinor(e.target.value, index);
   };
 
+  // Data for other majors are not available
+  const tempMinorList = ["Life Sciences", "Bioinformatics"];
+
   const minorFields = minors.map((minor, index) => {
     const isError = minor !== "" && isDuplicate(minor);
 
@@ -34,7 +37,8 @@ function InputMinor() {
             label="Select Minor"
             onChange={(e) => handleSelectMinor(e, index)}
           >
-            {majorList.map((major) => (
+            {/* Changed majorList to tempMinorList as data for other majors are not available */}
+            {tempMinorList.map((major) => (
               <MenuItem key={major} value={major}>
                 {major}
               </MenuItem>
