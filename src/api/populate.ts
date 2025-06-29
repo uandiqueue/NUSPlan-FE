@@ -5,7 +5,7 @@ import {
 
 // API to backend to populate programs based on user selections
 export async function populateModules(payload: Programme[]): Promise<PopulatedProgramPayload[]> {
-    const res = await fetch("http://localhost:4000/api/populate/", {
+    const res = await fetch("http://3.106.164.84:4000/api/populate/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
