@@ -26,7 +26,7 @@ function buildFEtoBEMap(lookup: LookupTable): Record<string, string> {
 }
 
 export default function SelectMajorPage() {
-  /* ------- stores ------- */
+  // STORES
   const {
     primaryMajor,
     secondaryMajor,
@@ -43,16 +43,13 @@ export default function SelectMajorPage() {
     setErrorMessage,
   } = useUIStore();
 
-  /* ------- local state ------- */
+  /* LOCAL STATE */
   const [loaded,  setLoaded]  = useState(false);
   const [loading, setLoading] = useState(false);
 
-  /* ============================================================ */
-  /*                       EVENT HANDLERS                         */
-  /* ============================================================ */
-
+  /* EVENT HANDLERS */
   const handleGenerateCourses = async () => {
-    /* -------- basic validation -------- */
+    // Basic validation
     const selected = getAllSelected();
     for (const m of selected) {
       if (isDuplicate(m)) {
@@ -73,14 +70,14 @@ export default function SelectMajorPage() {
       return;
     }
 
-    /* -------- build request body -------- */
+    // Build request body
     const programmes: Programme[] = [];
     programmes.push({ name: primaryMajor,  type: 'major' });
     if (secondaryMajor)
       programmes.push({ name: secondaryMajor, type: 'secondMajor' });
     minors.forEach((mn) => programmes.push({ name: mn, type: 'minor' }));
 
-    /* -------- fetch backend -------- */
+    // Fetch backend
     try {
       setLoading(true);
       const payloads: PopulatedProgramPayload[] = await populateModules(programmes);
@@ -90,11 +87,11 @@ export default function SelectMajorPage() {
         return;
       }
 
-      /* -------- transform lookups & maps -------- */
-      const lookups:   LookupTable[] = payloads.map(normalisePayload);
+      // Transform lookups & maps
+      const lookups: LookupTable[] = payloads.map(normalisePayload);
       const fe2beList: Record<string, string>[] = lookups.map(buildFEtoBEMap);
 
-      /* -------- load global planner store -------- */
+      // Load global planner store
       usePlanner.getState().loadProgrammes(payloads, lookups, fe2beList);
       setLoaded(true);
     } catch (err) {

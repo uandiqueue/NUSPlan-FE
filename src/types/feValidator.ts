@@ -34,4 +34,5 @@ export interface Usage {
     used: number;
     max: number;
     rule: CapRule;
+    pickedCodes: ModuleCode[];
 }

@@ -3,6 +3,7 @@ import type { LookupTable, TagStripMap, RequirementNodeInfo } from '../types/feV
 import type { PopulatedProgramPayload, CourseInfo } from '../types/shared/populator';
 import type { ModuleCode } from '../types/shared/nusmods-types';
 import { validateSelection } from '../services/validator/validateSelection';
+import { exportJson } from '../services/tester';
 
 /* 
 Multi‑programme planner store:
@@ -148,7 +149,9 @@ export const usePlanner = create<PlannerState>((set, get) => ({
 
         // 1. Clone picked and chosen
         const newPicked = new Set([...currentProg.picked]);
+        //console.log("Current picked modules:", [...newPicked]); // DEBUG
         const newChosen = currentProg.chosen.filter(c => c.boxKey !== boxKey);
+        //console.log("Current chosen courses:", newChosen); // DEBUG
 
         const already = currentProg.chosen.find(c => c.boxKey === boxKey);
 
@@ -160,6 +163,7 @@ export const usePlanner = create<PlannerState>((set, get) => ({
             newChosen.push({ boxKey, course });
             siblings?.forEach(code => newPicked.delete(code));
             newPicked.add(course.courseCode);
+            //console.log("Current picked modules:", [...newPicked]); // DEBUG
         }
 
         // 2. Create a completely new ProgrammeSlice object
@@ -214,7 +218,14 @@ function computeValidations(programmes: ProgrammeSlice[]): ValidationSnapshot[] 
     programmes.forEach(p => p.picked.forEach(c => unionPicked.add(c)));
     const pickedArr = [...unionPicked];
 
+    //console.log("Union of picked modules:", pickedArr); // DEBUG
+    /* 
+    programmes.forEach(p => {
+        exportJson(p.lookup, `LookupTable for ${p.payload.metadata.name}`); // DEBUG
+    });
+     */
     // 2. validate each programme in isolation but feed union list
+    //exportJson(programmes[0].fe2be, "fe2be"); // DEBUG
     return programmes.map(p =>
         validateSelection(pickedArr, p.lookup, p.fe2be)
     );
