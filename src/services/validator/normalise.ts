@@ -8,22 +8,15 @@ import {
 } from '../../types/feValidator';
 import { enforceRequirementPriority } from './requirementPriority';
 
-/* 
-Normalise one payload
-Never mutates the original payload objects, just reads them. 
-*/
+// Normalise the payload from PopulatedProgramPayload to LookupTable
+// Basically builds lookup maps from payload
 export function normalisePayload(
     payload: PopulatedProgramPayload,
 ): LookupTable {
-    // UI‑facing
-    const requiredUnits: Record<string, number> = {}; // FE key
-    const nodeInfo: Record<string, RequirementNodeInfo> = {}; // FE key
-
-    // Validation‑facing (BE keys)
-    const modulesByRequirement: Record<string, ModuleCode[]> = {};
-    const requirementsByModule: Record<ModuleCode, string[]> = {};
-
-    // Merged lookup maps from all payloads (keep BE keys)
+    const requiredUnits: Record<string, number> = {}; // requirementKey -> number of units required
+    const nodeInfo: Record<string, RequirementNodeInfo> = {};  // requirementKey -> logic/children/parent key
+    const modulesByRequirement: Record<string, ModuleCode[]> = {}; // requirementKey -> array of moduleCodes 
+    const requirementsByModule: Record<ModuleCode, string[]> = {}; // moduleCode -> array of requirementKeys 
     const {
         tags,
         units,
@@ -33,16 +26,13 @@ export function normalisePayload(
         minRequirements,
         selected = [],
         version,
-    } = payload.lookup;
+    } = payload.lookup; // LookupPayload fields (from BE)
 
     // Helpers
     const makeKey = (...parts: string[]) => parts.filter(Boolean).join(":");
     function link(rk: string, code: ModuleCode) {
-        // requirementKey -> modules (no duplication)
         const forward = (modulesByRequirement[rk] ||= []);
         if (!forward.includes(code)) forward.push(code);
-
-        // module -> requirementKeys (no duplication)
         const reverse = (requirementsByModule[code] ||= []);
         if (!reverse.includes(rk)) reverse.push(rk);
     }
@@ -77,32 +67,25 @@ export function normalisePayload(
                 link(parentBE, box.course.courseCode);
                 break;
             }
-
             // dropdown
             case "dropdown": {
                 const dropFE = makeKey(parentFE, "dropdown");
                 attach(dropFE, parentFE, "OR", box.UILabel);
-                const dropBE = box.boxKey; // Unique key supplied by backend
+                const dropBE = box.boxKey; 
                 box.options.forEach(opt => {
-                    // keep original mapping (dropdown-key → course)
-                    link(dropBE,    opt.courseCode);
-
-                    // NEW: map parent section (parentBE) → course
-                    link(parentBE,  opt.courseCode);
+                    link(dropBE, opt.courseCode);
+                    link(parentBE, opt.courseCode);
                 });
                 break;
             }
-
             // altPath
             case "altPath": {
                 const altFE = makeKey(parentFE, "altPath");
                 attach(altFE, parentFE, "OR", box.UILabel);
-
                 box.paths.forEach((p, i) => {
                     const pathFE = makeKey(altFE, `path${i}`);
                     attach(pathFE, altFE, "AND", `Path ${i + 1}`);
-
-                    const pathBE = p.id; // Unique per path
+                    const pathBE = p.id;
                     p.boxes.forEach(inner => traverse(inner, pathFE, parentBE));
                 });
                 break;
@@ -113,7 +96,6 @@ export function normalisePayload(
     // Top‑level sections
     for (const sec of payload.requirements) {
         requiredUnits[sec.requirementKey] = sec.requiredUnits ?? 0;
-
         attach(sec.requirementKey, null, 'SECTION', sec.label);
         sec.boxes.forEach((b) => traverse(b, sec.requirementKey, sec.requirementKey));
     }
@@ -132,10 +114,9 @@ export function normalisePayload(
         minRequirements,
         selected,
         version,
-    } as LookupTable; // casting because LookupTable hasn’t fe2be/be2fe fields
+    } as LookupTable;
 
     enforceRequirementPriority(lookupTable);
-
     //exportJson("lookupTable.json", lookupTable); // DEBUG
 
     return lookupTable;

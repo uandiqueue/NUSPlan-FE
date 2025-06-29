@@ -11,6 +11,6 @@ export function prereqSatisfied(
     if (typeof rule === 'string') return [...picked].some(c => matches(rule.split(':')[0], c));
     if ('and' in rule) return rule.and.every((n: any) => prereqSatisfied(picked, n));
     if ('or'  in rule) return rule.or.some((n: any) => prereqSatisfied(picked, n));
-    // N_OF rules (milestone 3)
+    // Skip N_OF rules for now (milestone 3)
     return true;
 }

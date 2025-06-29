@@ -16,98 +16,99 @@ import { normalisePayload } from "../services/validator/normalise";
 import { exportJson } from "../services/tester";
 
 function buildFEtoBEMap(lookup: LookupTable): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const beKey in lookup.modulesByRequirement) {
-    const parts = beKey.split(':');
-    const feKey = parts[parts.length - 1];
-    map[feKey] = beKey;
-  }
-  return map;
+    const map: Record<string, string> = {};
+    for (const beKey in lookup.modulesByRequirement) {
+        const parts = beKey.split(':');
+        const feKey = parts[parts.length - 1];
+        map[feKey] = beKey;
+    }
+    return map;
 }
 
 export default function SelectMajorPage() {
-  // STORES
-  const {
-    primaryMajor,
-    secondaryMajor,
-    minors,
-    getAllSelected,
-    isDuplicate,
-    resetAll,
-  } = useMajorStore();
+    // STORES
+    const {
+        primaryMajor,
+        secondaryMajor,
+        minors,
+        getAllSelected,
+        isDuplicate,
+        resetAll,
+    } = useMajorStore();
 
-  const {
-    showSecondarySelect,
-    setShowSecondarySelect,
-    errorMessage,
-    setErrorMessage,
-  } = useUIStore();
+    const {
+        showSecondarySelect,
+        setShowSecondarySelect,
+        errorMessage,
+        setErrorMessage,
+    } = useUIStore();
 
-  /* LOCAL STATE */
-  const [loaded,  setLoaded]  = useState(false);
-  const [loading, setLoading] = useState(false);
+    /* LOCAL STATE */
+    const [loaded, setLoaded] = useState(false);
+    const [loading, setLoading] = useState(false);
 
-  /* EVENT HANDLERS */
-  const handleGenerateCourses = async () => {
-    // Basic validation
-    const selected = getAllSelected();
-    for (const m of selected) {
-      if (isDuplicate(m)) {
-        setErrorMessage('You cannot choose the same major more than once.');
-        return;
-      }
-    }
-    if (!primaryMajor) {
-      setErrorMessage('Please select a primary major.');
-      return;
-    }
-    if (showSecondarySelect && !secondaryMajor) {
-      setErrorMessage('You have not selected your secondary major.');
-      return;
-    }
-    if (minors.some((m) => !m?.trim())) {
-      setErrorMessage('You have not selected your minor.');
-      return;
-    }
+    /* EVENT HANDLERS */
+    const handleGenerateCourses = async () => {
+        // Basic validation
+        const selected = getAllSelected();
+        for (const m of selected) {
+            if (isDuplicate(m)) {
+                setErrorMessage('You cannot choose the same major more than once.');
+                return;
+            }
+        }
+        if (!primaryMajor) {
+            setErrorMessage('Please select a primary major.');
+            return;
+        }
+        if (showSecondarySelect && !secondaryMajor) {
+            setErrorMessage('You have not selected your secondary major.');
+            return;
+        }
+        if (minors.some((m) => !m?.trim())) {
+            setErrorMessage('You have not selected your minor.');
+            return;
+        }
 
-    // Build request body
-    const programmes: Programme[] = [];
-    programmes.push({ name: primaryMajor,  type: 'major' });
-    if (secondaryMajor)
-      programmes.push({ name: secondaryMajor, type: 'secondMajor' });
-    minors.forEach((mn) => programmes.push({ name: mn, type: 'minor' }));
+        // Build request body
+        const programmes: Programme[] = [];
+        programmes.push({ name: primaryMajor, type: 'major' });
+        if (secondaryMajor)
+            programmes.push({ name: secondaryMajor, type: 'secondMajor' });
+        minors.forEach((mn) => programmes.push({ name: mn, type: 'minor' }));
 
-    // Fetch backend
-    try {
-      setLoading(true);
-      const payloads: PopulatedProgramPayload[] = await populateModules(programmes);
+        // Fetch backend
+        try {
+            setLoading(true);
+            const payloads: PopulatedProgramPayload[] = await populateModules(programmes);
+            //exportJson(payloads, 'payloads.json'); // DEBUG
 
-      if (!payloads.length) {
-        setErrorMessage('Backend returned no payload.');
-        return;
-      }
+            if (!payloads.length) {
+                setErrorMessage('Backend returned no payload.');
+                return;
+            }
 
-      // Transform lookups & maps
-      const lookups: LookupTable[] = payloads.map(normalisePayload);
-      //exportJson(lookups, 'lookups.json'); // DEBUG
-      const fe2beList: Record<string, string>[] = lookups.map(buildFEtoBEMap);
+            // Transform lookups & maps
+            const lookups: LookupTable[] = payloads.map(normalisePayload);
+            //exportJson(lookups, 'lookups.json'); // DEBUG
+            const fe2beList: Record<string, string>[] = lookups.map(buildFEtoBEMap);
 
-      // Load global planner store
-      usePlanner.getState().loadProgrammes(payloads, lookups, fe2beList);
-      setLoaded(true);
-    } catch (err) {
-      console.error(err);
-      setErrorMessage('Failed to fetch modules from backend.');
-    } finally {
-      setLoading(false);
-    }
-  };
+            // Load global planner store
+            usePlanner.getState().loadProgrammes(payloads, lookups, fe2beList);
+            setLoaded(true);
+        } catch (err) {
+            console.error(err);
+            setErrorMessage('Failed to fetch modules from backend.');
+        } finally {
+            setLoading(false);
+        }
+    };
 
-  const handleBack = () => {
-    setLoaded(false);
-    resetAll();
-    setShowSecondarySelect(false);
-  };
+    const handleBack = () => {
+        setLoaded(false);
+        resetAll();
+        setShowSecondarySelect(false);
+    };
 
     /* RENDER */
     // Planner page

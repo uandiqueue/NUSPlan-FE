@@ -1,26 +1,25 @@
 import type { LookupPayload } from '../../types/shared/validator';
 import type { ModuleCode } from '../../types/shared/nusmods-types';
 
-// Wildcard helper (For milestone 3 adding of prereq courses)
+// Wildcard helper (For adding of prereq courses (milestone 3))
 const matches = (pattern: string, code: string) =>
     pattern.includes('%') 
         ? new RegExp('^' + pattern.replace('%', '.*') + '$').test(code) 
         : pattern === code;
 
-// Grade helper (For milestone 3 warning message)
+// Grade helper (For grade warning (milestone 3))
 const gradeOK = (need: string, got: string) => {
     const order = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'D+', 'D', 'S', 'F', 'U'];
     return order.indexOf(got) <= order.indexOf(need);
 };
 
-// Build quick maps for selected ModuleCode -> prereqs | preclusions
+// Build quick maps for selected ModuleCode -> prereqs|preclusions
 export function buildDependencyMaps(
     picked: Set<ModuleCode>,
     lookup: LookupPayload,
 ) {
     const prereqOf: Record<ModuleCode, ModuleCode[]> = {};
     const precludeOf: Record<ModuleCode, ModuleCode[]> = {};
-
     for (const code of picked) {
         const rule = lookup.prereqs?.[code];
         if (rule) prereqOf[code] = leaves(rule);
@@ -35,11 +34,10 @@ export function buildDependencyMaps(
 function leaves(r: any): string[] {
     if (!r) return [];
     if (typeof r === 'string') {
-        return [r.replace(/:.*$/, '')]; // Remove any suffix after ':' (it is the minimum grade)
+        return [r.replace(/:.*$/, '')]; // Remove any suffix after ':' (the minimum grade)
     }
     if ('and' in r) return r.and.flatMap(leaves);
     if ('or'  in r) return r.or.flatMap(leaves);
-
     // Skipping N_OF for now
     return [];
 }
