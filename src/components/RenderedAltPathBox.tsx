@@ -2,7 +2,7 @@ import { usePlannerStore } from '../store/usePlannerStore';
 import type { AltPathBox, CourseBox, CourseInfo } from '../types/shared/populator';
 import { Box, Typography, Autocomplete, TextField, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
 import { useState } from 'react';
-import BoxRenderer from './BoxRenderer';
+import BoxRenderer from './boxRenderer';
 
 // boxKey serves as a unique identifier for each box
 // so this helper function collects all the box keys belonging to this alt path for cleanup

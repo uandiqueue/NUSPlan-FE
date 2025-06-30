@@ -1,5 +1,5 @@
 import type { RequirementSection } from '../types/shared/populator';
-import BoxRenderer from './BoxRenderer';
+import BoxRenderer from './boxRenderer';
 import { usePlannerStore } from '../store/usePlannerStore';
 import { Box, Typography } from "@mui/material";
 
