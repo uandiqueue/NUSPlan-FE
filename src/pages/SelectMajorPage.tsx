@@ -8,12 +8,14 @@ import InputMinor from "../components/InputMinor";
 import AddSecondary from "../components/AddSecondary";
 import AddMinor from "../components/AddMinor";
 import { populateModules } from "../api/populate";
-import type { Programme, PopulatedProgramPayload } from "../types/shared/populator";
+// import type { Programme, PopulatedProgramPayload } from "../types/shared/populator";
 import PlannerPage from "./PlannerPage";
 import { usePlannerStore } from "../store/usePlannerStore";
 import type { LookupTable } from "../types/feValidator";
 import { normalisePayload } from "../services/validator/normalise";
 import { exportJson } from "../services/tester";
+import { supabase } from "../App";
+import { BackendResponse, ProgrammePayload, ProcessProgrammesRequest, ProcessProgrammesResponse } from "../types/shared-types";
 
 function buildFEtoBEMap(lookup: LookupTable): Record<string, string> {
   const map: Record<string, string> = {};
@@ -44,8 +46,28 @@ export default function SelectMajorPage() {
   } = useUIStore();
 
   /* LOCAL STATE */
-  const [loaded,  setLoaded]  = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  /* Fetch the ProgrammeId based on the major and type from supabase*/
+  interface ProgrammeIdResponse {
+    id: string;
+  }
+
+  const fetchProgrammeId = async (major: string, majorType: string): Promise<ProgrammeIdResponse> => {
+    let { data, error } = await supabase
+      .from('programmes')
+      .select('id')
+      .eq("name", major)
+      .eq("type", majorType)
+      .single()
+
+    if (error || !data) {
+      throw new Error(`Unable to find programme id for ${major}: ${majorType}`);
+    }
+
+    return data;
+  }
 
   /* EVENT HANDLERS */
   const handleGenerateCourses = async () => {
@@ -71,16 +93,31 @@ export default function SelectMajorPage() {
     }
 
     // Build request body
-    const programmes: Programme[] = [];
-    programmes.push({ name: primaryMajor,  type: 'major' });
-    if (secondaryMajor)
-      programmes.push({ name: secondaryMajor, type: 'secondMajor' });
-    minors.forEach((mn) => programmes.push({ name: mn, type: 'minor' }));
+    const programmeIds: string[] = [];
+
+    const primary = await fetchProgrammeId(primaryMajor, "major");
+    programmeIds.push(primary.id);
+
+    if (secondaryMajor) {
+      const secondary = await fetchProgrammeId(secondaryMajor, "secondMajor");
+      programmeIds.push(secondary.id);
+    }
+
+    for (const minor of minors) {
+      const m = await fetchProgrammeId(minor, "minor");
+      programmeIds.push(m.id);
+    }
 
     // Fetch backend
     try {
       setLoading(true);
-      const payloads: PopulatedProgramPayload[] = await populateModules(programmes);
+      const req: ProcessProgrammesRequest = { programmeIds }; // to account for userId in the future
+      const res: BackendResponse<ProcessProgrammesResponse> = await populateModules(req);
+
+      const payloads: ProgrammePayload[] = res.data.programmes;
+
+      // console.log("ProcessProgrammesResponse:", res);
+      // console.log("Backend payloads:", payloads);
       //exportJson(payloads, 'payloads.json'); // DEBUG
 
       if (!payloads.length) {
@@ -88,13 +125,8 @@ export default function SelectMajorPage() {
         return;
       }
 
-      // Transform lookups & maps
-      const lookups: LookupTable[] = payloads.map(normalisePayload);
-      //exportJson(lookups, 'lookups.json'); // DEBUG
-      const fe2beList: Record<string, string>[] = lookups.map(buildFEtoBEMap);
-
       // Load global planner store
-      usePlannerStore.getState().loadProgrammes(payloads, lookups, fe2beList);
+      // usePlannerStore.getState().loadProgrammes(payloads, lookups, fe2beList);
       setLoaded(true);
     } catch (err) {
       console.error(err);
@@ -110,65 +142,65 @@ export default function SelectMajorPage() {
     setShowSecondarySelect(false);
   };
 
-    /* RENDER */
-    // Planner page
-    if (loaded) {
-        return <PlannerPage onBack={handleBack} />;
-    }
+  /* RENDER */
+  // Planner page
+  if (loaded) {
+    return <PlannerPage onBack={handleBack} />;
+  }
 
-    // Choose Major page
-    return (
-        <Box p={4} maxWidth={650} mx="auto">
-            <Typography variant="h4" gutterBottom>
-                NUSPlan
-            </Typography>
+  // Choose Major page
+  return (
+    <Box p={4} maxWidth={650} mx="auto">
+      <Typography variant="h4" gutterBottom>
+        NUSPlan
+      </Typography>
 
-            {/* Information banner */}
-            <Alert severity="info">
-              Please take note of the following restrictions:<br />
-                Possible choices for Primary Major: Life Sciences, Computer Science, Business Analytics.<br />
-                Possible choices for Secondary Major: Life Sciences only.<br />
-                Possible choices for Minors: Life Sciences, Bioinformatics<br />
-            </Alert>
+      {/* Information banner */}
+      <Alert severity="info">
+        Please take note of the following restrictions:<br />
+        Possible choices for Primary Major: Life Sciences, Computer Science, Business Analytics.<br />
+        Possible choices for Secondary Major: Life Sciences only.<br />
+        Possible choices for Minors: Life Sciences, Bioinformatics<br />
+      </Alert>
 
 
-            {/* Selectors */}
-            <InputPrimaryMajor />
-            <InputSecondaryMajor />
-            <InputMinor />
+      {/* Selectors */}
+      <InputPrimaryMajor />
+      <InputSecondaryMajor />
+      <InputMinor />
 
-            {/* Buttons */}
-            <Box display="flex" gap={2} mt={2}>
-                <AddSecondary />
-                <AddMinor />
-                <Button variant="contained" onClick={handleGenerateCourses} disabled={loading}>
-                    Generate Courses
-                </Button>
-                <Button
-                    variant="text"
-                    onClick={() => {
-                        resetAll();
-                        setShowSecondarySelect(false);
-                    }}
-                >
-                    Reset All
-                </Button>
-            </Box>
+      {/* Buttons */}
+      <Box display="flex" gap={2} mt={2}>
+        <AddSecondary />
+        <AddMinor />
+        <Button variant="contained" onClick={handleGenerateCourses} disabled={loading}>
+          Generate Courses
+        </Button>
+        <Button
+          variant="text"
+          onClick={() => {
+            resetAll();
+            setShowSecondarySelect(false);
+          }}
+        >
+          Reset All
+        </Button>
+      </Box>
 
-            {/* Spinner */}
-            {loading && (
-                <Box mt={4} display="flex" justifyContent="center">
-                    <CircularProgress />
-                </Box>
-            )}
-
-            {/* Error toast */}
-            <Snackbar
-                open={!!errorMessage}
-                autoHideDuration={3000}
-                onClose={() => setErrorMessage("")}
-                message={errorMessage}
-            />
+      {/* Spinner */}
+      {loading && (
+        <Box mt={4} display="flex" justifyContent="center">
+          <CircularProgress />
         </Box>
-    );
+      )}
+
+      {/* Error toast */}
+      <Snackbar
+        open={!!errorMessage}
+        autoHideDuration={3000}
+        onClose={() => setErrorMessage("")}
+        message={errorMessage}
+      />
+    </Box>
+  );
 }
