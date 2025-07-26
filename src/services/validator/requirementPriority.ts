@@ -1,4 +1,4 @@
-import { LookupTable } from "../../types/feValidator";
+import { LookupTable } from "../../types/old/feValidator";
 
 // Priority order
 const priorityOrder = [

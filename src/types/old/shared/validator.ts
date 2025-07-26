@@ -1,4 +1,4 @@
-import type { PrereqTree, ModuleCode } from "./nusmods-types";
+import type { PrereqTree, ModuleCode } from "../../nusmods-types";
 import type { CapRule } from "./populator";
 
 // For efficient lookup on frontend

@@ -1,4 +1,4 @@
-import type { ExactBox } from '../types/shared/populator';
+import type { ExactBox } from '../types/old/shared/populator';
 import { Box, Typography } from '@mui/material';
 
 function RenderedExactBox({ box }: { box: ExactBox }) {

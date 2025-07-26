@@ -12,34 +12,45 @@ import {
 import DeleteIcon from "@mui/icons-material/Delete";
 
 function InputPrimaryMajor() {
-  const { majorList, primaryMajor, setPrimaryMajor, isDuplicate } =
-    useMajorStore();
+  const { 
+    availableMajors, 
+    primaryMajor, 
+    setPrimaryMajor, 
+    isDuplicate 
+  } = useMajorStore();
 
   const handleSelectPrimary = (e: SelectChangeEvent) => {
-    setPrimaryMajor(e.target.value);
+    const selectedId = e.target.value;
+    const selectedProgramme = availableMajors.find(major => major.id === selectedId);
+    if (selectedProgramme) {
+      setPrimaryMajor({
+        id: selectedProgramme.id,
+        name: selectedProgramme.name
+      });
+    }
   };
 
   const handleDeletePrimary = () => {
-    setPrimaryMajor("");
+    setPrimaryMajor(null);
   }
 
-  const isError = primaryMajor !== "" && isDuplicate(primaryMajor);
+  const isError = primaryMajor ? isDuplicate(primaryMajor.id) : false;
 
   return (
     <Paper sx={{ p: 2, mb: 2, display: "flex", alignItems: "center" }}>
       <FormControl fullWidth error={isError}>
         <InputLabel>Primary Major</InputLabel>
         <Select
-          value={primaryMajor}
+          value={primaryMajor ? primaryMajor.id : ""}
           label="Primary Major"
           onChange={handleSelectPrimary}
         >
-          {majorList.map((major) => (
+          {availableMajors.map((major) => (
             <MenuItem
-              key={major}
-              value={major}
+              key={major.id}
+              value={major.id}
             >
-              {major}
+              {major.name}
             </MenuItem>
           ))}
         </Select>

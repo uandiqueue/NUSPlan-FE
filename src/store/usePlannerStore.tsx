@@ -1,13 +1,13 @@
 import { create } from 'zustand';
-import type { PopulatedProgramPayload, CourseInfo, CourseBox } from '../types/shared/populator';
-import type { ModuleCode } from '../types/shared/nusmods-types';
+import type { PopulatedProgramPayload, CourseInfo, CourseBox } from '../types/old/shared/populator';
+import type { ModuleCode } from '../types/nusmods-types';
 import { validateSelection } from '../services/validator/validateSelection';
 import type {
     ValidationSnapshot,
     Choice,
     ProgrammeSlice,
     PlannerState
-} from '../types/ui';
+} from '../types/old/ui';
 import { exportJson } from '../services/tester';
 
 // helper function to collect all exact box choices (read-only courses)

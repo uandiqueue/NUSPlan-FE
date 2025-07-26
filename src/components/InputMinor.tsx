@@ -12,18 +12,27 @@ import {
 import DeleteIcon from "@mui/icons-material/Delete";
 
 function InputMinor() {
-  const { majorList, minors, updateMinor, deleteMinor, isDuplicate } =
-    useMajorStore();
+  const { 
+    availableMinors, 
+    minors, 
+    updateMinor, 
+    deleteMinor, 
+    isDuplicate 
+  } = useMajorStore();
 
   const handleSelectMinor = (e: SelectChangeEvent, index: number) => {
-    updateMinor(e.target.value, index);
+    const selectedId = e.target.value;
+    const selectedProgramme = availableMinors.find(minor => minor.id === selectedId);
+    if (selectedProgramme) {
+      updateMinor({
+        id: selectedProgramme.id,
+        name: selectedProgramme.name
+      }, index);
+    }
   };
 
-  // Data for other majors are not available
-  const tempMinorList = ["Life Sciences", "Bioinformatics"];
-
   const minorFields = minors.map((minor, index) => {
-    const isError = minor !== "" && isDuplicate(minor);
+    const isError = minor ? isDuplicate(minor.id) : false;
 
     return (
       <Paper
@@ -33,15 +42,17 @@ function InputMinor() {
         <FormControl fullWidth error={isError}>
           <InputLabel>Select Minor</InputLabel>
           <Select
-            value={minor}
+            value={minor ? minor.id : ""}
             label="Select Minor"
             onChange={(e) => handleSelectMinor(e, index)}
           >
-            {/* Changed majorList to tempMinorList as data for other majors are not available */}
-            {tempMinorList.map((major) => (
-              <MenuItem key={major} value={major}>
-                {major}
-              </MenuItem>
+            {availableMinors.map((minorOption) => (
+            <MenuItem
+              key={minorOption.id}
+              value={minorOption.id}
+            >
+              {minorOption.name}
+            </MenuItem>
             ))}
           </Select>
         </FormControl>

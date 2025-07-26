@@ -1,4 +1,4 @@
-import { ModuleCode } from "../../types/shared/nusmods-types";
+import { ModuleCode } from "../../types/nusmods-types";
 
 const matches = (p: string, c: string) =>
     p.includes('%') ? new RegExp('^' + p.replace('%', '.*') + '$').test(c) : p === c;

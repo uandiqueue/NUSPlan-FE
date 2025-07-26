@@ -1,5 +1,5 @@
 import { TagStripMap, LookupTable, RequirementNodeInfo } from "./feValidator";
-import { ModuleCode } from "./shared/nusmods-types";
+import { ModuleCode } from "../nusmods-types";
 import { CourseInfo, PopulatedProgramPayload } from "./shared/populator";
 
 export interface Progress { 

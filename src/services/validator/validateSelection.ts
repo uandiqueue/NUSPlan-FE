@@ -1,5 +1,5 @@
-import type { LookupTable, TagStripMap, Usage } from '../../types/feValidator';
-import { ModuleCode } from '../../types/shared/nusmods-types';
+import type { LookupTable, TagStripMap, Usage } from '../../types/old/feValidator';
+import { ModuleCode } from '../../types/nusmods-types';
 import { exportJson } from '../tester';
 import { buildDependencyMaps } from './dependencyMaps';
 import { prereqSatisfied } from './prereqChecker';

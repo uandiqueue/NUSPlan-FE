@@ -1,4 +1,4 @@
-import type { ModuleCode } from "./shared/nusmods-types";
+import type { ModuleCode } from "./nusmods-types";
 
 // SHARED TYPES (BE + FE)
 

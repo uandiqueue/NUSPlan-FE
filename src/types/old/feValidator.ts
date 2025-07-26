@@ -1,4 +1,4 @@
-import { ModuleCode } from "./shared/nusmods-types";
+import { ModuleCode } from "../nusmods-types";
 import { CapRule } from "./shared/populator";
 import { LookupPayload } from "./shared/validator";
 
