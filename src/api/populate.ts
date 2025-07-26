@@ -1,4 +1,8 @@
-import { BackendResponse, ProcessProgrammesRequest, ProcessProgrammesResponse } from "../types/shared-types";
+import { 
+    BackendResponse,
+    ProcessProgrammesRequest,
+    ProcessProgrammesResponse
+ } from "../types/shared-types";
 
 const backendURL = process.env.REACT_APP_BACKEND_URL;
 
@@ -13,4 +17,3 @@ export async function populateModules(req: ProcessProgrammesRequest): Promise<Ba
     if (!res.ok) throw new Error("Backend error");
     return res.json();
 }
-

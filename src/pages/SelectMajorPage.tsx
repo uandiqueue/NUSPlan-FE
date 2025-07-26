@@ -116,8 +116,8 @@ export default function SelectMajorPage() {
 
       const payloads: ProgrammePayload[] = res.data.programmes;
 
-      console.log("ProcessProgrammesResponse:", res);
-      console.log("Backend payloads:", payloads);
+      // console.log("ProcessProgrammesResponse:", res);
+      // console.log("Backend payloads:", payloads);
       //exportJson(payloads, 'payloads.json'); // DEBUG
 
       if (!payloads.length) {
