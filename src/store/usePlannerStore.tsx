@@ -1,187 +1,468 @@
 import { create } from 'zustand';
-import type { PopulatedProgramPayload, CourseInfo, CourseBox } from '../types/old/shared/populator';
 import type { ModuleCode } from '../types/nusmods-types';
-import { validateSelection } from '../services/validator/validateSelection';
+import type { ProgrammePayload, LookupMaps } from '../types/shared-types';
 import type {
-    ValidationSnapshot,
-    Choice,
-    ProgrammeSlice,
-    PlannerState
-} from '../types/old/ui';
-import { exportJson } from '../services/tester';
+    ValidationState,
+    ValidationResult,
+    ProgressState,
+    PendingDecision
+} from '../types/frontend-types';
+import { RealtimeValidator } from '../services/feRealtimeValidator';
+import { Optimizer } from '../services/feOptimizer';
+import { FulfilmentTracker } from '../services/feFulfilmentTracker';
+import { dbService } from '../services/dbQuery';
 
-// helper function to collect all exact box choices (read-only courses)
-function collectExactBoxChoices(payload: PopulatedProgramPayload): Choice[] {
-    const choices: Choice[] = [];
-    const visitBoxes = (boxes: CourseBox[]) => {
-        for (const box of boxes) {
-            if (box.kind === "exact") {
-                choices.push({ boxKey: box.boxKey, course: box.course, kind: "exact" });
-            }
-        }
+interface PlannerState {
+    // Core data
+    programmes: ProgrammePayload[];
+    programme: ProgrammePayload;
+    lookupMaps: LookupMaps;
+    selectedProgramIndex: number;
+    
+    // Validation and UI state
+    validationState: ValidationState;
+    progressState: ProgressState;
+    pendingDecision: PendingDecision | null;
+    
+    // Service instances
+    validator: RealtimeValidator | null;
+    optimizer: Optimizer | null;
+    tracker: FulfilmentTracker | null;
+    
+    // UI state
+    isLoading: boolean;
+    error: string | null;
+    warnings: string[];
+    
+    // Database integration status
+    dbStatus: {
+        isConnected: boolean;
+        cacheStats: {
+            modulesCached: number;
+            prerequisitesCached: number;
+            preclusionsCached: number;
+        };
     };
-    for (const section of payload.requirements) {
-        visitBoxes(section.boxes);
-    }
-    return choices;
-}
-
-// helper function for validation Snapshot
-function computeValidations(programmes: ProgrammeSlice[]): ValidationSnapshot[] {
-    if (!programmes.length) return [];
-    // Union of all selected modules
-    const unionPicked = new Set<ModuleCode>();
-    programmes.forEach(p => p.picked.forEach(c => unionPicked.add(c)));
-    const pickedArr = [...unionPicked];
-    // Validate each programme in isolation but feed union list
-    return programmes.map(p =>
-        validateSelection(pickedArr, p.lookup, p.fe2be, p.chosen)
-    );
+    
+    // Actions
+    loadProgrammes: (programmes: ProgrammePayload[], lookupMaps: LookupMaps) => Promise<void>;
+    switchProgramme: (index: number) => void;
+    selectModule: (module: ModuleCode, boxKey: string) => Promise<ValidationResult>;
+    removeModule: (module: ModuleCode, boxKey: string) => Promise<void>;
+    resolveDecision: (selectedProgrammes: string[]) => Promise<void>;
+    cancelDecision: () => void;
+    
+    // Enhanced getters with database integration
+    getModuleInfo: (module: ModuleCode) => Promise<any>;
+    getFilteredOptions: (boxOptions: ModuleCode[]) => Promise<any[]>;
+    getProgressSummary: (programmeId: string) => Promise<any>;
+    getRequirementTree: (programmeId: string) => Promise<any[]>;
+    
+    // Utility actions
+    clearCaches: () => void;
+    refreshData: () => Promise<void>;
+    getSystemStats: () => any;
 }
 
 export const usePlannerStore = create<PlannerState>((set, get) => ({
-  programmes: [],
-  selectedProgramIndex: 0,
-  warnings: [],
-  blocked: new Set<ModuleCode>(),
-  progress: () => ({ 
-    have: 0, 
-    need: 0, 
-    percent: 0 
-  }), // program requirements fulfilment progress
-  chosen: [],
-  payloads: [],
-  payload: {
-    metadata: { 
-      name: '', 
-      type: 'major', 
-      requiredUnits: 0, 
-      doubleCountCap: 0, 
-      nusTaughtFraction: 0.6 
+    // Initial state
+    programmes: [],
+    programme: {} as ProgrammePayload,
+    lookupMaps: {} as LookupMaps,
+    selectedProgramIndex: 0,
+    
+    validationState: {
+        maxRuleFulfillment: new Map(),
+        strippedTags: new Map(),
+        doubleCountUsage: new Map(),
+        doubleCountModules: new Map(),
+        moduleUsageCount: new Map(),
+        violatingModules: new Set(),
+        selectedModules: new Set(),
+        moduleToBoxMapping: new Map()
     },
-    requirements: [],
-    moduleTags: [],
-    lookup: {
-      tags: {},
-      units: {},
-      prereqs: {},
-      preclusions: {},
-      minRequirements: {},
-      maxRequirements: {},
-      selected: [],
-      version: 0
+    
+    progressState: {
+        pathFulfillment: new Map(),
+        pathModules: new Map(),
+        programmeProgress: new Map(),
+        ueCalculation: {
+            required: 0,
+            fulfilled: 0,
+            autoIncludedModules: [],
+            overflow: 0
+        }
+    },
+    
+    pendingDecision: null,
+    validator: null,
+    optimizer: null,
+    tracker: null,
+    
+    isLoading: false,
+    error: null,
+    warnings: [],
+    
+    dbStatus: {
+        isConnected: false,
+        cacheStats: {
+            modulesCached: 0,
+            prerequisitesCached: 0,
+            preclusionsCached: 0
+        }
+    },
+
+    /**
+     * Load programmes and initialize all services with database integration
+     */
+    loadProgrammes: async (programmes, lookupMaps) => {
+        set({ isLoading: true, error: null });
+        
+        try {
+            // console.log('Loading programmes with database integration...'); // DEBUGGING PURPOSES
+            
+            // Initialize validation and progress states
+            const validationState: ValidationState = {
+                maxRuleFulfillment: new Map(),
+                strippedTags: new Map(),
+                doubleCountUsage: new Map(),
+                doubleCountModules: new Map(),
+                moduleUsageCount: new Map(),
+                violatingModules: new Set(),
+                selectedModules: new Set(),
+                moduleToBoxMapping: new Map()
+            };
+            
+            const progressState: ProgressState = {
+                pathFulfillment: new Map(),
+                pathModules: new Map(),
+                programmeProgress: new Map(),
+                ueCalculation: {
+                    required: 0,
+                    fulfilled: 0,
+                    autoIncludedModules: [],
+                    overflow: 0
+                }
+            };
+
+            // Initialize services
+            const validator = new RealtimeValidator(validationState, lookupMaps, programmes);
+            const optimizer = new Optimizer(validator, lookupMaps, programmes);
+            const tracker = new FulfilmentTracker(progressState, validator, lookupMaps, programmes);
+
+            // Get database status
+            const cacheStats = dbService.getCacheStats();
+            
+            set({
+                programmes,
+                programme: programmes[0],
+                lookupMaps,
+                validationState,
+                progressState,
+                validator,
+                optimizer,
+                tracker,
+                selectedProgramIndex: 0,
+                isLoading: false,
+                dbStatus: {
+                    isConnected: true,
+                    cacheStats
+                }
+            });
+            
+            // console.log('Programmes loaded successfully with database integration'); // DEBUGGING PURPOSES
+            
+        } catch (error) {
+            console.error('Error loading programmes:', error);
+            set({
+                error: error instanceof Error ? error.message : 'Failed to load programmes',
+                isLoading: false
+            });
+        }
+    },
+
+    /**
+     * Switch to a different programme view
+     */
+    switchProgramme: (index) => {
+        const { programmes } = get();
+        if (index >= 0 && index < programmes.length) {
+            set({ selectedProgramIndex: index, programme: programmes[index] });
+        }
+    },
+
+    /**
+     * Select a module with enhanced validation and database integration
+     */
+    selectModule: async (module, boxKey) => {
+        const { validator, optimizer, tracker, validationState } = get();
+        
+        if (!validator || !optimizer || !tracker) {
+            return {
+                isValid: false,
+                errors: ['Services not initialized'],
+                warnings: [],
+                requiresDecision: false
+            };
+        }
+
+        set({ isLoading: true });
+        
+        try {
+            // Perform validation
+            const validationResult = await validator.validateSelection(module, boxKey);
+            
+            if (!validationResult.isValid) {
+                set({ 
+                    warnings: validationResult.errors,
+                    isLoading: false
+                });
+                return validationResult;
+            }
+
+            // Check if decision is required
+            if (validationResult.requiresDecision) {
+                const decision = await optimizer.createDoubleCountDecision(module, boxKey);
+                if (decision) {
+                    set({ 
+                        pendingDecision: decision,
+                        isLoading: false
+                    });
+                    return validationResult;
+                }
+            }
+
+            // Update validation state
+            await validator.updateValidationState(module, boxKey, 'ADD');
+            
+            // Update progress tracking
+            await tracker.updateProgress(module, 'ADD');
+            
+            // Update UI state
+            set(state => ({
+                validationState: { ...state.validationState },
+                progressState: { ...state.progressState },
+                warnings: validationResult.warnings,
+                isLoading: false
+            }));
+
+            return validationResult;
+            
+        } catch (error) {
+            console.error('Error selecting module:', error);
+            const errorResult: ValidationResult = {
+                isValid: false,
+                errors: [error instanceof Error ? error.message : 'Unknown error'],
+                warnings: [],
+                requiresDecision: false
+            };
+            
+            set({ 
+                error: 'Failed to select module',
+                isLoading: false
+            });
+            
+            return errorResult;
+        }
+    },
+
+    /**
+     * Remove a module with database-integrated cleanup
+     */
+    removeModule: async (module, boxKey) => {
+        const { validator, tracker } = get();
+        
+        if (!validator || !tracker) return;
+
+        set({ isLoading: true });
+        
+        try {
+            // Update validation state
+            await validator.updateValidationState(module, boxKey, 'REMOVE');
+            
+            // Update progress tracking
+            await tracker.updateProgress(module, 'REMOVE');
+            
+            // Update UI state
+            set(state => ({
+                validationState: { ...state.validationState },
+                progressState: { ...state.progressState },
+                warnings: [],
+                isLoading: false
+            }));
+            
+        } catch (error) {
+            console.error('Error removing module:', error);
+            set({ 
+                error: 'Failed to remove module',
+                isLoading: false
+            });
+        }
+    },
+
+    /**
+     * Resolve a pending decision (e.g., double-count allocation)
+     */
+    resolveDecision: async (selectedProgrammes) => {
+        const { pendingDecision, validator, tracker } = get();
+        
+        if (!pendingDecision || !validator || !tracker) return;
+
+        set({ isLoading: true });
+        
+        try {
+            // Apply the decision
+            await validator.applyDoubleCountDecision(pendingDecision.module, selectedProgrammes);
+            
+            // Update validation state
+            await validator.updateValidationState(pendingDecision.module, pendingDecision.boxKey, 'ADD');
+            
+            // Update progress tracking
+            await tracker.updateProgress(pendingDecision.module, 'ADD');
+            
+            // Clear pending decision
+            set(state => ({
+                validationState: { ...state.validationState },
+                progressState: { ...state.progressState },
+                pendingDecision: null,
+                isLoading: false
+            }));
+            
+        } catch (error) {
+            console.error('Error resolving decision:', error);
+            set({ 
+                error: 'Failed to resolve decision',
+                isLoading: false
+            });
+        }
+    },
+
+    /**
+     * Cancel a pending decision
+     */
+    cancelDecision: () => {
+        set({ pendingDecision: null });
+    },
+
+    /**
+     * Get detailed module information with database integration
+     */
+    getModuleInfo: async (module) => {
+        const { optimizer } = get();
+        if (!optimizer) return null;
+        
+        try {
+            return await optimizer.getModuleInfo(module);
+        } catch (error) {
+            console.error('Error getting module info:', error);
+            return null;
+        }
+    },
+
+    /**
+     * Get filtered dropdown options with enhanced module details
+     */
+    getFilteredOptions: async (boxOptions) => {
+        const { optimizer } = get();
+        if (!optimizer) return [];
+        
+        try {
+            return await optimizer.getFilteredDropdownOptions(boxOptions);
+        } catch (error) {
+            console.error('Error getting filtered options:', error);
+            return [];
+        }
+    },
+
+    /**
+     * Get detailed progress summary for a programme
+     */
+    getProgressSummary: async (programmeId) => {
+        const { tracker } = get();
+        if (!tracker) return null;
+        
+        try {
+            return await tracker.getDetailedProgressSummary(programmeId);
+        } catch (error) {
+            console.error('Error getting progress summary:', error);
+            return null;
+        }
+    },
+
+    /**
+     * Get requirement tree with accurate progress data
+     */
+    getRequirementTree: async (programmeId) => {
+        const { tracker } = get();
+        if (!tracker) return [];
+        
+        try {
+            return await tracker.buildRequirementTree(programmeId);
+        } catch (error) {
+            console.error('Error getting requirement tree:', error);
+            return [];
+        }
+    },
+
+    /**
+     * Clear all caches (useful for debugging or data refresh)
+     */
+    clearCaches: () => {
+        const { validator, optimizer, tracker } = get();
+        
+        dbService.clearCache();
+        optimizer?.clearCaches();
+        tracker?.clearCaches();
+        
+        // Update cache stats
+        const cacheStats = dbService.getCacheStats();
+        set(state => ({
+            dbStatus: {
+                ...state.dbStatus,
+                cacheStats
+            }
+        }));
+    },
+
+    /**
+     * Refresh data and caches
+     */
+    refreshData: async () => {
+        const { programmes, lookupMaps } = get();
+        
+        // Clear caches first
+        get().clearCaches();
+        
+        // Reload programmes
+        await get().loadProgrammes(programmes, lookupMaps);
+    },
+
+    /**
+     * Get comprehensive system statistics for debugging
+     */
+    getSystemStats: () => {
+        const { validator, optimizer, tracker, programmes, validationState, progressState } = get();
+        
+        const dbStats = dbService.getCacheStats();
+        const validationStats = validator?.getValidationStats();
+        const optimizerStats = optimizer?.getOptimizerStats();
+        const trackerStats = tracker?.getTrackerStats();
+        
+        return {
+            database: dbStats,
+            validation: validationStats,
+            optimizer: optimizerStats,
+            tracker: trackerStats,
+            programmes: {
+                count: programmes.length,
+                selectedIndex: get().selectedProgramIndex
+            },
+            state: {
+                selectedModules: validationState.selectedModules.size,
+                violatingModules: validationState.violatingModules.size,
+                trackedPaths: progressState.pathFulfillment.size,
+                hasPendingDecision: !!get().pendingDecision
+            }
+        };
     }
-  },
-  nodeInfo: {},
-
-  // load the first programme into UI
-  loadProgrammes: (payloads, lookups, fe2beList) => {
-    const programmes: ProgrammeSlice[] = payloads.map((p, i) => ({
-      payload: p,
-      lookup: lookups[i],
-      fe2be: fe2beList[i],
-      picked: new Set<ModuleCode>(p.lookup.selected ?? []),
-      chosen: [], // nothing picked yet in dropdown
-    }));
-    // check module conflicts and fulfilment progress
-    const validations = computeValidations(programmes);
-
-    set({
-      programmes,
-      selectedProgramIndex: 0,
-      warnings: validations[0].warnings,
-      blocked: validations[0].blocked,
-      progress: validations[0].progress,
-      chosen: programmes[0].chosen,
-      payloads: programmes.map(p => p.payload),
-      payload: programmes[0].payload,
-      nodeInfo: lookups[0].nodeInfo,
-    });
-  },
-
-  // switch to another programme
-  switchProgramme: (index) => {
-    const programmes = get().programmes;
-    if (!programmes.length) return;
-    const validations = computeValidations(programmes);
-
-    set({
-      selectedProgramIndex: index,
-      warnings: validations[index].warnings,
-      blocked: validations[index].blocked,
-      progress: validations[index].progress,
-      chosen: programmes[index].chosen,
-      payload: programmes[index].payload,
-      nodeInfo: programmes[index].lookup.nodeInfo,
-    });
-  },
-
-  // select a course in the dropdown box
-  toggle: (course, boxKey, requirementKey, kind, siblings) => {
-    //console.log("toggle:", course.courseCode); // DEBUG
-    const state = get();
-    const idx = state.selectedProgramIndex;
-    const currentProg = state.programmes[idx];
-    const newPicked = new Set([...currentProg.picked]);
-    //console.log("Current picked modules:", [...newPicked]); // DEBUG
-    const newChosen = currentProg.chosen.filter(c => c.boxKey !== boxKey);
-    //console.log("Current chosen courses:", newChosen); // DEBUG
-
-    //console.log(state.blocked); // DEBUG
-    if (state.blocked.has(course.courseCode)) {
-      //console.warn(`${course.courseCode} blocked by validator`); // DEBUG
-      return;
-    }
-
-    const already = currentProg.chosen.find(c => c.boxKey === boxKey);
-    const stillChosenElsewhere = (code: string, arr: Choice[]) =>
-      arr.some(c => c.course.courseCode === code); // check if this course still chosen in another box
-    if (already && already.course.courseCode === course.courseCode) {
-      if (!stillChosenElsewhere(course.courseCode, newChosen)) {
-        newPicked.delete(course.courseCode);
-      }
-    } else {
-      //console.log(`${course.courseCode} not selected, adding to dropdown`); // DEBUG
-      if (already && !stillChosenElsewhere(already.course.courseCode, newChosen)) {
-        newPicked.delete(already.course.courseCode);
-      }
-      newChosen.push({ boxKey, course, kind });
-      //console.log(`${boxKey} now has ${course.courseCode}`); // DEBUG
-      newPicked.add(course.courseCode);
-      //console.log("Current picked modules:", [...newPicked]); // DEBUG
-    }
-
-    const updatedProgramme: ProgrammeSlice = {
-      ...currentProg,
-      picked: newPicked,
-      chosen: newChosen,
-    };
-    //console.log("Updated programme:", updatedProgramme); // DEBUG
-    const nextProgrammes = [...state.programmes];
-    nextProgrammes[idx] = updatedProgramme;
-    const validations = computeValidations(nextProgrammes);
-    const curVal = validations[idx];
-
-    set({
-      programmes: nextProgrammes,
-      warnings: curVal.warnings,
-      blocked: curVal.blocked,
-      progress: curVal.progress,
-      chosen: updatedProgramme.chosen,
-      payload: updatedProgramme.payload,
-      nodeInfo: updatedProgramme.lookup.nodeInfo,
-    });
-  },
-
-  canPick: (course) => {
-    const { blocked } = get();
-    return !blocked.has(course.courseCode);
-  },
-
-  isDuplicate: (courseCode, boxKey) => {
-    // same course picked in a different dropdown inside this programme
-    const { programmes, selectedProgramIndex } = get();
-    const picks = programmes[selectedProgramIndex]?.chosen ?? [];
-    return picks.some(c => c.course.courseCode === courseCode && c.boxKey !== boxKey);
-  }
 }));

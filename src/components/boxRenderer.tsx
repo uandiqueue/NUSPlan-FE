@@ -1,28 +1,23 @@
-import type { CourseBox } from '../types/old/shared/populator';
-import RenderedExactBox from './RenderedExactBox';
-import RenderedDropdownBox from './RenderedDropdownBox';
-import RenderedAltPathBox from './RenderedAltPathBox';
+import type { CourseBox } from '../types/shared-types';
+import EnhancedModuleSelector from './ModuleSelector';
 import { usePlannerStore } from '../store/usePlannerStore';
 
-function BoxRenderer({ box, requirementKey }: { box: CourseBox, requirementKey: string }) {
+function BoxRenderer({
+  box,
+  requirementKey
+}: {
+  box: CourseBox;
+  requirementKey: string;
+}) {
+  const { programme } = usePlannerStore();
 
-  // const chosen = usePlannerStore(state => state.chosen);
-  // console.log("chosen: ", chosen); // DEBUG
-
-  // Got the colours for each box from https://coolors.co/556dcc
-  switch (box.kind) {
-    case "exact":
-      return <RenderedExactBox box={box} />
-
-    case "dropdown":
-      return <RenderedDropdownBox box={box} requirementKey={requirementKey} />
-
-    case "altPath":
-      return <RenderedAltPathBox box={box} requirementKey={requirementKey} />
-
-    default:
-      return <></>;
-  }
+  return (
+    <EnhancedModuleSelector
+      courseBox={box}
+      programmeId={programme.programmeId}
+      sectionType={requirementKey}
+    />
+  );
 }
 
-export default BoxRenderer;
+export default BoxRenderer

@@ -1,15 +1,57 @@
-import { CircularProgress, Box, Typography } from "@mui/material";
-import { usePlannerStore } from "../store/usePlannerStore";
+import React, { useState, useEffect } from 'react';
+import { CircularProgress, Box, Typography, LinearProgress } from '@mui/material';
+import { usePlannerStore } from '../store/usePlannerStore';
+
+interface ProgressSummary {
+  requiredUnits: number;
+  fulfilledUnits: number;
+  // add other fields if your service returns more
+}
 
 export default function ProgressGraph() {
-  const { payload, progress } = usePlannerStore();
+  const { programme, getProgressSummary } = usePlannerStore();
+  const [summary, setSummary] = useState<ProgressSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Compute overall progress (sum of have / need across all sections)
-  const sections = payload.requirements.map(sec => sec.requirementKey);
-  const totalNeed = sections.reduce((sum, k) => sum + progress(k).need, 0);
-  const totalHave = sections.reduce((sum, k) => sum + progress(k).have, 0);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getProgressSummary(programme.programmeId)
+      .then((data: any) => {
+        if (cancelled) return;
+        // Adapt these properties to match your actual response
+        setSummary({
+          requiredUnits: data.requiredUnits ?? data.required ?? 0,
+          fulfilledUnits: data.fulfilledUnits ?? data.fulfilled ?? 0,
+        });
+      })
+      .catch((e: any) => {
+        console.error('Error fetching progress summary:', e);
+        if (!cancelled) setError('Failed to load progress');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [programme.programmeId, getProgressSummary]);
 
-  const percent = totalNeed === 0 ? 0 : Math.round((totalHave / totalNeed) * 100);
+  if (loading) {
+    return (
+      <Box my={2}>
+        <LinearProgress />
+      </Box>
+    );
+  }
+
+  if (error || !summary) {
+    return <Typography color="error">{error || 'No progress data available'}</Typography>;
+  }
+
+  const { requiredUnits, fulfilledUnits } = summary;
+  const percent = requiredUnits === 0 ? 0 : Math.round((fulfilledUnits / requiredUnits) * 100);
 
   return (
     <Box position="relative" display="inline-flex" flexDirection="column" alignItems="center">
@@ -29,7 +71,7 @@ export default function ProgressGraph() {
         </Typography>
       </Box>
       <Typography variant="body2" sx={{ mt: 1 }}>
-        {totalHave}/{totalNeed} MC fulfilled
+        {fulfilledUnits}/{requiredUnits} MC fulfilled
       </Typography>
     </Box>
   );

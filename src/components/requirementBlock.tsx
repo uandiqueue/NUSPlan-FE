@@ -1,22 +1,26 @@
-import type { RequirementSection } from '../types/old/shared/populator';
-import BoxRenderer from './boxRenderer';
+import React from 'react';
+import type { ProgrammeSection } from '../types/shared-types';
+import { Box, Typography } from '@mui/material';
 import { usePlannerStore } from '../store/usePlannerStore';
-import { Box, Typography } from "@mui/material";
+import BoxRenderer from "./BoxRenderer";
 
-// Renders a single UI section block (“Core Electives” etc.)
-export function RequirementBlock({ block }: { block: RequirementSection }) {
-  const progressFn = usePlannerStore(state => state.progress); // gets function only once
-  const { have, need } = progressFn(block.requirementKey); // call only once
+// Renders a single program requirement section (e.g., Core Electives)
+export function RequirementBlock({ block }: { block: ProgrammeSection }) {
+  // no need for programmeId here, BoxRenderer will handle selectors
 
   return (
     <Box mb={4} p={2} border="1px solid #ccc" borderRadius={2}>
       <Typography variant="h6" gutterBottom>
-        {block.label} – {have}/{need} MC
+        {block.displayLabel}
       </Typography>
 
       <Box display="flex" flexWrap="wrap" gap={2}>
-        {block.boxes.map(b => (
-          <BoxRenderer key={`${block.requirementKey}:${b.boxKey}`} box={b} requirementKey={block.requirementKey} />
+        {block.courseBoxes.map(box => (
+          <BoxRenderer
+            key={`${block.groupType}-${box.boxKey}`}
+            box={box}
+            requirementKey={block.groupType}
+          />
         ))}
       </Box>
     </Box>

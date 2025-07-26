@@ -5,6 +5,8 @@ interface UIStore {
   setShowSecondarySelect: (val: boolean) => void;
   errorMessage: string;
   setErrorMessage: (msg: string) => void;
+  userLoggedIn: boolean;
+  setUserLoggedIn: (val: boolean) => void;
 }
 
 export const useUIStore = create<UIStore>((set) => ({
@@ -12,4 +14,6 @@ export const useUIStore = create<UIStore>((set) => ({
   setShowSecondarySelect: (val) => set({ showSecondarySelect: val }),
   errorMessage: "",
   setErrorMessage: (msg) => set({ errorMessage: msg }),
+  userLoggedIn: false,
+  setUserLoggedIn: (val) => set({ userLoggedIn: val }),
 }));

@@ -16,12 +16,14 @@ import { normalisePayload } from "../services/validator/normalise";
 import { exportJson } from "../services/tester";
 import { supabase } from "../config/supabase";
 import { beError, beErrorHandler } from "../services/errorHandler/be-error";
-import { 
-  BackendResponse, 
-  ProgrammePayload, 
-  ProcessProgrammesRequest, 
-  ProcessProgrammesResponse 
+import {
+  BackendResponse,
+  ProgrammePayload,
+  ProcessProgrammesRequest,
+  ProcessProgrammesResponse
 } from "../types/shared-types";
+import { Programme } from "../types/frontend-types";
+import Header from "../components/Header";
 
 export default function SelectProgrammesPage() {
   // STORES
@@ -35,6 +37,9 @@ export default function SelectProgrammesPage() {
     fetchProgrammes, // New method to fetch programmes
     isLoading: storeLoading, // Renamed to avoid conflict
     error: storeError, // Renamed to avoid conflict
+    availableMajors,
+    availableSecondMajors,
+    availableMinors,
   } = useMajorStore();
 
   const {
@@ -43,6 +48,8 @@ export default function SelectProgrammesPage() {
     errorMessage,
     setErrorMessage,
   } = useUIStore();
+
+  const { loadProgrammes } = usePlannerStore();
 
   /* LOCAL STATE */
   const [loaded, setLoaded] = useState(false);
@@ -86,19 +93,19 @@ export default function SelectProgrammesPage() {
       const req: ProcessProgrammesRequest = { programmeIds }; // to account for userId in the future
       const res: BackendResponse<ProcessProgrammesResponse> = await generateAP(req);
 
-      const payloads: ProgrammePayload[] = res.data.programmes;
+      const programmes: ProgrammePayload[] = res.data.programmes;
 
-      // console.log("ProcessProgrammesResponse:", res);
-      // console.log("Backend payloads:", payloads);
+      console.log("ProcessProgrammesResponse:", res); // FOR DEBUGGING PURPOSES
+      console.log("Backend payloads:", programmes); // FOR DEBUGGING PURPOSES
       //exportJson(payloads, 'payloads.json'); // DEBUG
 
-      if (!payloads.length) {
+      if (!programmes.length) {
         setErrorMessage('Backend returned no payload.');
         return;
       }
 
       // Load global planner store
-      // usePlannerStore.getState().loadProgrammes(payloads, lookups, fe2beList);
+      loadProgrammes(programmes, programmes[0].lookupMaps);
       setLoaded(true);
     } catch (err: any) {
       console.error(err);
@@ -115,6 +122,11 @@ export default function SelectProgrammesPage() {
     setShowSecondarySelect(false);
   };
 
+  // Helper function to display the major restrictions in the alert banner
+  const formatNames = (list: Programme[]) => {
+    return list.length ? list.map(p => p.name).join(", ") : "None available";
+  }
+
   /* RENDER */
   // Planner page
   if (loaded) {
@@ -123,67 +135,69 @@ export default function SelectProgrammesPage() {
 
   // Choose Major page
   return (
-    <Box p={4} maxWidth={650} mx="auto">
-      <Typography variant="h4" gutterBottom>
-        NUSPlan
-      </Typography>
+    <>
+      <Header />
 
-      {/* Information banner */}
-      <Alert severity="info">
-        Please take note of the following restrictions:<br />
-        Possible choices for Primary Major: Life Sciences, Computer Science, Business Analytics.<br />
-        Possible choices for Secondary Major: Life Sciences only.<br />
-        Possible choices for Minors: Life Sciences, Bioinformatics<br />
-      </Alert>
+      <Box p={4} maxWidth={650} mx="auto">
 
-
-      {/* Selectors */}
-      <InputPrimaryMajor />
-      <InputSecondaryMajor />
-      <InputMinor />
-
-      {/* Buttons */}
-      <Box display="flex" gap={2} mt={2}>
-        <AddSecondary />
-        <AddMinor />
-        <Button variant="contained" onClick={handleGenerateCourses} disabled={loading}>
-          Generate Courses
-        </Button>
-        <Button
-          variant="text"
-          onClick={() => {
-            resetAll();
-            setShowSecondarySelect(false);
-          }}
-        >
-          Reset All
-        </Button>
-      </Box>
-
-      {/* Spinner */}
-      {loading && (
-        <Box mt={4} display="flex" justifyContent="center">
-          <CircularProgress />
-        </Box>
-      )}
-
-      {/* Error toast and Alert for programme combination issues */}
-      {errorMessage && errorMessage.includes('Invalid Programme Combination') ? (
-        <Alert 
-          severity="warning" 
-          sx={{ mt: 2 }}
-          onClose={() => setErrorMessage("")}
-        >
-          {errorMessage}
+        {/* Information banner */}
+        <Alert severity="info" sx={{ mb: 3 }}>
+          Sign in to save your data.<br />
+          Please take note of the following restrictions:<br />
+          Possible choices for Primary Major: {formatNames(availableMajors)}.<br />
+          Possible choices for Secondary Major: {formatNames(availableSecondMajors)}.<br />
+          Possible choices for Minors: {formatNames(availableMinors)}<br />
         </Alert>
-      ) : (
-        <Snackbar
-          open={!!errorMessage}
-          autoHideDuration={6000}
-          onClose={() => setErrorMessage("")}
-          message={errorMessage}
-        />
-      )}
-    </Box>
+
+
+        {/* Selectors */}
+        <InputPrimaryMajor />
+        <InputSecondaryMajor />
+        <InputMinor />
+
+        {/* Buttons */}
+        <Box display="flex" gap={2} mt={3}>
+          <AddSecondary />
+          <AddMinor />
+          <Button variant="contained" onClick={handleGenerateCourses} disabled={loading}>
+            Generate Courses
+          </Button>
+          <Button
+            variant="text"
+            onClick={() => {
+              resetAll();
+              setShowSecondarySelect(false);
+            }}
+          >
+            Reset All
+          </Button>
+        </Box>
+
+        {/* Spinner */}
+        {loading && (
+          <Box mt={4} display="flex" justifyContent="center">
+            <CircularProgress />
+          </Box>
+        )}
+
+        {/* Error toast and Alert for programme combination issues */}
+        {errorMessage && errorMessage.includes('Invalid Programme Combination') ? (
+          <Alert
+            severity="warning"
+            sx={{ mt: 2 }}
+            onClose={() => setErrorMessage("")}
+          >
+            {errorMessage}
+          </Alert>
+        ) : (
+          <Snackbar
+            open={!!errorMessage}
+            autoHideDuration={6000}
+            onClose={() => setErrorMessage("")}
+            message={errorMessage}
+          />
+        )}
+      </Box>
+    </>
   );
 }
