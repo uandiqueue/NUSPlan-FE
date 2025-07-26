@@ -1,67 +1,147 @@
 import { create } from "zustand";
+import { supabase } from "../config/supabase";
+import type { Programme, ProgrammeSelection } from "../types/frontend-types";
 
 interface MajorStore {
-  majorList: string[];
-  primaryMajor: string;
-  secondaryMajor: string;
-  minors: string[];
-  setPrimaryMajor: (major: string) => void;
-  setSecondaryMajor: (major: string) => void;
+  // List of available programmes from db
+  availableMajors: Programme[];
+  availableSecondMajors: Programme[];
+  availableMinors: Programme[];
+
+  // Loading and error states
+  isLoading: boolean;
+  error: string | null;
+  
+  // Selected programmes (storing both id and name)
+  primaryMajor: ProgrammeSelection | null;
+  secondaryMajor: ProgrammeSelection | null;
+  minors: (ProgrammeSelection | null)[];
+
+  // Actions
+  fetchProgrammes: () => Promise<void>;
+  setPrimaryMajor: (programme: ProgrammeSelection | null) => void;
+  setSecondaryMajor: (programme: ProgrammeSelection | null) => void;
   addMinor: () => void;
-  updateMinor: (major: string, index: number) => void;
+  updateMinor: (programme: ProgrammeSelection | null, index: number) => void;
   deleteMinor: (index: number) => void;
   resetAll: () => void;
-  getAllSelected: () => string[];
-  isDuplicate: (major: string) => boolean;
+  getAllSelectedIds: () => string[];
+  getAllSelectedNames: () => string[];
+  isDuplicate: (programmeId: string) => boolean;
+  getProgrammeById: (id: string) => Programme | undefined;
 }
 
 export const useMajorStore = create<MajorStore>()((set, get) => ({
-  majorList: [
-    "Computer Science",
-    "Business Analytics",
-    "Life Sciences",
-  ],
-  primaryMajor: "",
-  secondaryMajor: "",
+  availableMajors: [],
+  availableSecondMajors: [],
+  availableMinors: [],
+  isLoading: false,
+  error: null,
+  primaryMajor: null,
+  secondaryMajor: null,
   minors: [],
-  setPrimaryMajor: (major) => set({ primaryMajor: major }),
-  setSecondaryMajor: (major) => set({ secondaryMajor: major }),
+
+  // Fetch programmes from Supabase
+  fetchProgrammes: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const { data, error } = await supabase
+        .from('programmes')
+        .select('id, name, type, required_units, double_count_cap')
+        .order('name');
+      
+      if (error) throw error;
+      
+      if (data) {
+        const majors = data.filter(p => p.type === 'major');
+        const secondMajors = data.filter(p => p.type === 'secondMajor');
+        const minors = data.filter(p => p.type === 'minor');
+        
+        set({
+          availableMajors: majors,
+          availableSecondMajors: secondMajors,
+          availableMinors: minors,
+          isLoading: false,
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching programmes from Supabase:', error);
+      set({ 
+        error: error instanceof Error ? error.message : 'Failed to fetch programmes',
+        isLoading: false 
+      });
+    }
+  },
+
+  setPrimaryMajor: (programme) => set({ primaryMajor: programme }),
+
+  setSecondaryMajor: (programme) => set({ secondaryMajor: programme }),
+
   // For when the Add minor button is clicked
   addMinor: () => {
-    set({ minors: [...get().minors, ""] });
+    set({ minors: [...get().minors, null] });
   },
-  updateMinor: (major, index) =>
+
+  updateMinor: (programme, index) => {
+    const newMinors = [...get().minors];
+    newMinors[index] = programme;
+    set({ minors: newMinors });
+  },
+
+  deleteMinor: (index) => {
     set({
-      minors: [
-        ...get().minors.slice(0, index), // flatten the array
-        major,
-        ...get().minors.slice(index + 1)
-      ]
-    }),
-  deleteMinor: (index) =>
+      minors: get().minors.filter((_, i) => i !== index)
+    });
+  },
+
+  resetAll: () => {
     set({
-      minors: [
-        ...get().minors.slice(0, index),
-        ...get().minors.slice(index + 1)
-      ]
-    }),
-  resetAll: () =>
-    set({
-      primaryMajor: "",
-      secondaryMajor: "",
+      primaryMajor: null,
+      secondaryMajor: null,
       minors: [],
-    }),
-  getAllSelected: () => {
-    const { primaryMajor, secondaryMajor, minors } = get();
-    return [
-      primaryMajor ?? "",
-      secondaryMajor ?? "",
-      ...minors.map((major) => major ?? ""),
-    ].filter(
-      (item): item is string => typeof item === "string" && item.length > 0
-    );
+    });
   },
-  isDuplicate: (major) => {
-    return get().getAllSelected().filter((m) => m === major).length > 1;
+
+  // Get all selected programme IDs for backend
+  getAllSelectedIds: () => {
+    const { primaryMajor, secondaryMajor, minors } = get();
+    const ids: string[] = [];
+    
+    if (primaryMajor?.id) ids.push(primaryMajor.id);
+    if (secondaryMajor?.id) ids.push(secondaryMajor.id);
+    
+    minors.forEach(minor => {
+      if (minor?.id) ids.push(minor.id);
+    });
+    
+    return ids;
+  },
+
+  // Get all selected programme names for UI display
+  getAllSelectedNames: () => {
+    const { primaryMajor, secondaryMajor, minors } = get();
+    const names: string[] = [];
+    
+    if (primaryMajor?.name) names.push(primaryMajor.name);
+    if (secondaryMajor?.name) names.push(secondaryMajor.name);
+    
+    minors.forEach(minor => {
+      if (minor?.name) names.push(minor.name);
+    });
+    
+    return names;
+  },
+
+  // Check for duplicate selections
+  isDuplicate: (programmeId: string) => {
+    const selectedIds = get().getAllSelectedIds();
+    return selectedIds.filter(id => id === programmeId).length > 1;
+  },
+  
+  // Get programme details by ID
+  getProgrammeById: (id: string) => {
+    const { availableMajors, availableSecondMajors, availableMinors } = get();
+    const allProgrammes = [...availableMajors, ...availableSecondMajors, ...availableMinors];
+    return allProgrammes.find(p => p.id === id);
   },
 }));

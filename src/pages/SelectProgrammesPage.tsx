@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Box, Typography, Button, Snackbar, CircularProgress, Alert } from "@mui/material";
 import { useMajorStore } from "../store/useMajorStore";
 import { useUIStore } from "../store/useUIStore";
@@ -7,35 +7,34 @@ import InputSecondaryMajor from "../components/InputSecondaryMajor";
 import InputMinor from "../components/InputMinor";
 import AddSecondary from "../components/AddSecondary";
 import AddMinor from "../components/AddMinor";
-import { populateModules } from "../api/populate";
+import { generateAP } from "../api/apGeneration";
 // import type { Programme, PopulatedProgramPayload } from "../types/shared/populator";
 import PlannerPage from "./PlannerPage";
 import { usePlannerStore } from "../store/usePlannerStore";
-import type { LookupTable } from "../types/feValidator";
+import type { LookupTable } from "../types/old/feValidator";
 import { normalisePayload } from "../services/validator/normalise";
 import { exportJson } from "../services/tester";
-import { supabase } from "../App";
-import { BackendResponse, ProgrammePayload, ProcessProgrammesRequest, ProcessProgrammesResponse } from "../types/shared-types";
+import { supabase } from "../config/supabase";
+import { beError, beErrorHandler } from "../services/errorHandler/be-error";
+import { 
+  BackendResponse, 
+  ProgrammePayload, 
+  ProcessProgrammesRequest, 
+  ProcessProgrammesResponse 
+} from "../types/shared-types";
 
-function buildFEtoBEMap(lookup: LookupTable): Record<string, string> {
-  const map: Record<string, string> = {};
-  for (const beKey in lookup.modulesByRequirement) {
-    const parts = beKey.split(':');
-    const feKey = parts[parts.length - 1];
-    map[feKey] = beKey;
-  }
-  return map;
-}
-
-export default function SelectMajorPage() {
+export default function SelectProgrammesPage() {
   // STORES
   const {
     primaryMajor,
     secondaryMajor,
     minors,
-    getAllSelected,
+    getAllSelectedIds, // Changed from getAllSelected
     isDuplicate,
     resetAll,
+    fetchProgrammes, // New method to fetch programmes
+    isLoading: storeLoading, // Renamed to avoid conflict
+    error: storeError, // Renamed to avoid conflict
   } = useMajorStore();
 
   const {
@@ -49,31 +48,17 @@ export default function SelectMajorPage() {
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  /* Fetch the ProgrammeId based on the major and type from supabase*/
-  interface ProgrammeIdResponse {
-    id: string;
-  }
-
-  const fetchProgrammeId = async (major: string, majorType: string): Promise<ProgrammeIdResponse> => {
-    let { data, error } = await supabase
-      .from('programmes')
-      .select('id')
-      .eq("name", major)
-      .eq("type", majorType)
-      .single()
-
-    if (error || !data) {
-      throw new Error(`Unable to find programme id for ${major}: ${majorType}`);
-    }
-
-    return data;
-  }
+  /* Fetch programmes from Supabase*/
+  useEffect(() => {
+    fetchProgrammes();
+  }, [fetchProgrammes]);
 
   /* EVENT HANDLERS */
   const handleGenerateCourses = async () => {
     // Basic validation
-    const selected = getAllSelected();
-    for (const m of selected) {
+    const selectedIds = getAllSelectedIds();
+
+    for (const m of selectedIds) {
       if (isDuplicate(m)) {
         setErrorMessage('You cannot choose the same major more than once.');
         return;
@@ -87,32 +72,19 @@ export default function SelectMajorPage() {
       setErrorMessage('You have not selected your secondary major.');
       return;
     }
-    if (minors.some((m) => !m?.trim())) {
+    if (minors.some((m) => !m?.name?.trim())) {
       setErrorMessage('You have not selected your minor.');
       return;
     }
 
     // Build request body
-    const programmeIds: string[] = [];
-
-    const primary = await fetchProgrammeId(primaryMajor, "major");
-    programmeIds.push(primary.id);
-
-    if (secondaryMajor) {
-      const secondary = await fetchProgrammeId(secondaryMajor, "secondMajor");
-      programmeIds.push(secondary.id);
-    }
-
-    for (const minor of minors) {
-      const m = await fetchProgrammeId(minor, "minor");
-      programmeIds.push(m.id);
-    }
+    const programmeIds = selectedIds;
 
     // Fetch backend
     try {
       setLoading(true);
       const req: ProcessProgrammesRequest = { programmeIds }; // to account for userId in the future
-      const res: BackendResponse<ProcessProgrammesResponse> = await populateModules(req);
+      const res: BackendResponse<ProcessProgrammesResponse> = await generateAP(req);
 
       const payloads: ProgrammePayload[] = res.data.programmes;
 
@@ -128,9 +100,10 @@ export default function SelectMajorPage() {
       // Load global planner store
       // usePlannerStore.getState().loadProgrammes(payloads, lookups, fe2beList);
       setLoaded(true);
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setErrorMessage('Failed to fetch modules from backend.');
+      const errorMessage = beErrorHandler.getErrorMessage(err as beError);
+      setErrorMessage(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -194,13 +167,23 @@ export default function SelectMajorPage() {
         </Box>
       )}
 
-      {/* Error toast */}
-      <Snackbar
-        open={!!errorMessage}
-        autoHideDuration={3000}
-        onClose={() => setErrorMessage("")}
-        message={errorMessage}
-      />
+      {/* Error toast and Alert for programme combination issues */}
+      {errorMessage && errorMessage.includes('Invalid Programme Combination') ? (
+        <Alert 
+          severity="warning" 
+          sx={{ mt: 2 }}
+          onClose={() => setErrorMessage("")}
+        >
+          {errorMessage}
+        </Alert>
+      ) : (
+        <Snackbar
+          open={!!errorMessage}
+          autoHideDuration={6000}
+          onClose={() => setErrorMessage("")}
+          message={errorMessage}
+        />
+      )}
     </Box>
   );
 }

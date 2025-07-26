@@ -1,5 +1,5 @@
-import type { LookupPayload } from '../../types/shared/validator';
-import type { ModuleCode } from '../../types/shared/nusmods-types';
+import type { LookupPayload } from '../../types/old/shared/validator';
+import type { ModuleCode } from '../../types/nusmods-types';
 
 // Wildcard helper (For milestone 3 adding of prereq courses)
 const matches = (pattern: string, code: string) =>

@@ -1,4 +1,4 @@
-import type { CourseBox } from '../types/shared/populator';
+import type { CourseBox } from '../types/old/shared/populator';
 import RenderedExactBox from './RenderedExactBox';
 import RenderedDropdownBox from './RenderedDropdownBox';
 import RenderedAltPathBox from './RenderedAltPathBox';

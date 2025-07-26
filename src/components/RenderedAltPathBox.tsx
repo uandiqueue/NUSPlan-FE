@@ -1,5 +1,5 @@
 import { usePlannerStore } from '../store/usePlannerStore';
-import type { AltPathBox, CourseBox, CourseInfo } from '../types/shared/populator';
+import type { AltPathBox, CourseBox, CourseInfo } from '../types/old/shared/populator';
 import { Box, Typography, Autocomplete, TextField, MenuItem, Select, FormControl, InputLabel } from '@mui/material';
 import { useState } from 'react';
 import BoxRenderer from './boxRenderer';

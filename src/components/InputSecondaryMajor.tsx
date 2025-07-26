@@ -14,7 +14,7 @@ import DeleteIcon from "@mui/icons-material/Delete";
 
 function InputSecondaryMajor() {
   const {
-    majorList,
+    availableSecondMajors,
     secondaryMajor,
     setSecondaryMajor,
     isDuplicate,
@@ -26,16 +26,23 @@ function InputSecondaryMajor() {
   } = useUIStore();
 
   const handleSelectSecondary = (e: SelectChangeEvent) => {
-    setSecondaryMajor(e.target.value);
+    const selectedId = e.target.value;
+    const selectedProgramme = availableSecondMajors.find(major => major.id === selectedId);
+    if (selectedProgramme) {
+      setSecondaryMajor({
+        id: selectedProgramme.id,
+        name: selectedProgramme.name
+      });
+    }
     setShowSecondarySelect(true);
   };
 
   const handleDeleteSecondary = () => {
-    setSecondaryMajor("");
+    setSecondaryMajor(null);
     setShowSecondarySelect(false);
   }
 
-  const isError = secondaryMajor !== "" && isDuplicate(secondaryMajor);
+  const isError = secondaryMajor ? isDuplicate(secondaryMajor.id) : false;
 
   // Data for other majors are not available
   const tempSecondaryList = ["Life Sciences"];
@@ -47,17 +54,16 @@ function InputSecondaryMajor() {
           <FormControl fullWidth error={isError}>
             <InputLabel>Select Secondary Major</InputLabel>
             <Select
-              value={secondaryMajor}
+              value={secondaryMajor ? secondaryMajor.id : ""}
               label="Select Secondary Major"
               onChange={handleSelectSecondary}
             >
-              {/* Changed majorList to tempSecondaryList as data for other majors are not available */}
-              {tempSecondaryList.map((major) => (
+              {availableSecondMajors.map((major) => (
                 <MenuItem
-                  key={major}
-                  value={major}
+                  key={major.id}
+                  value={major.id}
                 >
-                  {major}
+                  {major.name}
                 </MenuItem>
               ))}
             </Select>

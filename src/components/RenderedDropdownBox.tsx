@@ -1,5 +1,5 @@
 import { usePlannerStore } from '../store/usePlannerStore';
-import type { DropdownBox, CourseInfo } from '../types/shared/populator';
+import type { DropdownBox, CourseInfo } from '../types/old/shared/populator';
 import { Box, Typography, Autocomplete, TextField } from '@mui/material';
 
 function RenderedDropdownBox({ box, requirementKey }: { box: DropdownBox, requirementKey: string}) {

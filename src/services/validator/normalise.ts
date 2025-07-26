@@ -1,11 +1,11 @@
 import { exportJson } from "../tester";
-import type { PopulatedProgramPayload, CourseBox } from '../../types/shared/populator';
-import type { ModuleCode } from '../../types/shared/nusmods-types';
+import type { PopulatedProgramPayload, CourseBox } from '../../types/old/shared/populator';
+import type { ModuleCode } from '../../types/nusmods-types';
 import {
     LookupTable,
     RequirementNodeInfo,
     Logic,
-} from '../../types/feValidator';
+} from '../../types/old/feValidator';
 import { enforceRequirementPriority } from './requirementPriority';
 
 // Normalise the payload from PopulatedProgramPayload to LookupTable
