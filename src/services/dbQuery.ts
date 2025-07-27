@@ -113,7 +113,7 @@ export class FEDatabaseQueryService {
   /**
    * Extract all unique module codes from moduleToLeafPaths in lookup.
    */
-  private extractAllModuleCodes(lookupMaps: LookupMaps): Set<ModuleCode> {
+  extractAllModuleCodes(lookupMaps: LookupMaps): Set<ModuleCode> {
     const allModuleCodes = new Set<ModuleCode>();
     if (lookupMaps.moduleToLeafPaths) {
       Object.keys(lookupMaps.moduleToLeafPaths).forEach(moduleCode => {

@@ -51,7 +51,6 @@ interface PlannerState {
     removeModule: (module: ModuleCode, boxKey: string) => Promise<void>;
     resolveDecision: (selectedProgrammes: string[]) => Promise<void>;
     cancelDecision: () => void;
-    getDuplicateModules: () => Set<ModuleCode>;
 
     // Enhanced getters with database integration
     getModuleInfo: (module: ModuleCode) => Promise<any>;
@@ -343,17 +342,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
      */
     cancelDecision: () => {
         set({ pendingDecision: null });
-    },
-
-    getDuplicateModules: () => {
-        const { moduleToBoxMapping } = get().validationState;
-        const duplicates: Set<ModuleCode> = new Set();
-        moduleToBoxMapping.forEach((boxes, module) => {
-            if (boxes.size > 1) {
-                duplicates.add(module);
-            }
-        });
-        return duplicates;
     },
 
     /**

@@ -62,6 +62,9 @@ export interface ExactBox {
     programmeId: string;
     moduleCode: ModuleCode;
     isPreselected: boolean;
+    isReadonly?: boolean; // For prerequisites
+    isPrerequisite?: boolean; // For prerequisites
+    parentModule?: ModuleCode; // For prerequisites
 }
 
 export interface DropdownBox {
@@ -70,6 +73,9 @@ export interface DropdownBox {
     pathId: string;
     programmeId: string;
     moduleOptions: ModuleCode[];
+    isReadonly?: boolean; // For prerequisites
+    isPrerequisite?: boolean; // For prerequisites
+    parentModule?: ModuleCode; // For prerequisites
 }
 
 export interface AltPathBox {
@@ -78,6 +84,9 @@ export interface AltPathBox {
     pathId: string;
     programmeId: string;
     pathAlternatives: CourseBox[]; // List of direct children path IDs
+    isReadonly?: boolean; // For prerequisites
+    isPrerequisite?: boolean; // For prerequisites
+    parentModule?: ModuleCode; // For prerequisites
 }
 
 // VALIDATION LOOKUP MAPS (For FE real-time validation)
