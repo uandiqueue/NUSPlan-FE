@@ -8,13 +8,8 @@ import InputMinor from "../components/InputMinor";
 import AddSecondary from "../components/AddSecondary";
 import AddMinor from "../components/AddMinor";
 import { generateAP } from "../api/apGeneration";
-// import type { Programme, PopulatedProgramPayload } from "../types/shared/populator";
 import PlannerPage from "./PlannerPage";
 import { usePlannerStore } from "../store/usePlannerStore";
-import type { LookupTable } from "../types/old/feValidator";
-import { normalisePayload } from "../services/validator/normalise";
-import { exportJson } from "../services/tester";
-import { supabase } from "../config/supabase";
 import { beError, beErrorHandler } from "../services/errorHandler/be-error";
 import { FEDatabaseQueryService } from "../services/dbQuery";
 import {

@@ -5,22 +5,21 @@ import { Box, Typography, Button, IconButton } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import BoxRenderer from './BoxRenderer';
 import { dbService } from '../services/dbQuery';
+import { usePlannerStore } from '../store/usePlannerStore';
 
-// Renders a single program requirement section (e.g., Core Electives)
 export function RequirementBlock({
   block,
   programmeId,
-  lookupMaps,
 }: {
   block: ProgrammeSection,
   programmeId: string,
-  lookupMaps: LookupMaps,
 }) {
   const isUE = block.groupType === 'unrestrictedElectives';
 
   const [addedBoxes, setAddedBoxes] = useState<CourseBox[]>([]);
   const [ueBoxes, setUeBoxes] = useState<CourseBox[]>([]);
   const [ueModuleOptions, setUeModuleOptions] = useState<ModuleCode[]>([]);
+  const {lookupMaps} = usePlannerStore();
 
   // Load all module codes for UE
   useEffect(() => {
@@ -59,6 +58,11 @@ export function RequirementBlock({
 
   const totalBoxes = isUE ? ueBoxes : [...block.courseBoxes, ...addedBoxes];
 
+  const isDeletableBox = (box: CourseBox) => {
+    return isUE || addedBoxes.some(b => b.boxKey === box.boxKey);
+  };
+
+
   return (
     <Box mb={4} p={2} border="1px solid #ccc" borderRadius={2}>
       <Typography variant="h6" gutterBottom>
@@ -80,18 +84,21 @@ export function RequirementBlock({
               sectionPaths={block.paths}
               sectionBoxes={totalBoxes}
             />
-            {isUE && (
+            {(isUE || addedBoxes.some(b => b.boxKey === box.boxKey)) && (
               <IconButton
                 size="small"
                 sx={{
-                  position: "absolute",
-                  bottom: 4,
-                  right: 4,
+                  position: "relative",
+                  bottom: 40,
+                  left: 220,
                   zIndex: 2,
                   bgcolor: 'white',
                   boxShadow: 1,
                 }}
-                onClick={() => handleDeleteUEBox(box.boxKey)}
+                onClick={() => {
+                  if (isUE) handleDeleteUEBox(box.boxKey);
+                  else setAddedBoxes(prev => prev.filter(b => b.boxKey !== box.boxKey));
+                }}
               >
                 <DeleteIcon fontSize="small" />
               </IconButton>
@@ -100,6 +107,7 @@ export function RequirementBlock({
         ))}
       </Box>
 
+
       {/* Add button for UE or normal hidden boxes */}
       <Box display="flex" justifyContent="flex-end" mt={2}>
         {isUE ? (
@@ -107,12 +115,28 @@ export function RequirementBlock({
             Add Elective
           </Button>
         ) : block.hidden.length > 0 ? (
-          <Button variant="outlined" size="small" onClick={handleAdd}>
-            Add
-          </Button>
+          <Box display="flex" gap={1}>
+            {block.hidden.map((hiddenBox, i) => {
+              // Find title for this hiddenBox
+              const pathInfo = block.paths.find((p) => p.pathId === hiddenBox.pathId);
+              const boxTitle = pathInfo?.displayLabel || 'Requirement';
+              return (
+                <Button
+                  key={hiddenBox.boxKey}
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setAddedBoxes(prev => [
+                    ...prev,
+                    { ...hiddenBox, boxKey: `${hiddenBox.boxKey}-${Date.now()}` }
+                  ])}
+                >
+                  Add {boxTitle}
+                </Button>
+              );
+            })}
+          </Box>
         ) : null}
       </Box>
     </Box>
   );
 }
-
