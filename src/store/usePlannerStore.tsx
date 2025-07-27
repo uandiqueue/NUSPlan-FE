@@ -140,7 +140,14 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       const validator = new RealtimeValidator(validationState, lookupMaps, programmes);
       const optimizer = new Optimizer(validator, lookupMaps, programmes);
       const tracker = new FulfilmentTracker(progressState, validator, lookupMaps, programmes);
-      
+      for (const programme of programmes) {
+        const preselected = programme.preselectedModules || [];
+        for (const mod of preselected) {
+          await tracker.updateProgress(mod, 'ADD');
+          await validator.updateValidationState(mod, '', 'ADD');
+        }
+      }
+
       set({
         programmes,
         programme: programmes[0],
@@ -522,7 +529,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   /**
-   * //CHANGE: Comprehensive system stats using all services
+   * Get system statistics for debugging
    */
   getSystemStats: () => {
     const { 

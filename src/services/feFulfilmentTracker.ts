@@ -135,12 +135,11 @@ export class FulfilmentTracker {
         if (!hierarchy) return parents;
         
         // Find all ancestors of this path
-        const findAncestors = (currentKey: string) => {
-            for (const [parentKey, children] of Object.entries(hierarchy)) {
-                if (children.includes(currentKey)) {
-                    const fullParentKey = `${programmeId}:${parentKey}`;
-                    parents.push(fullParentKey);
-                    findAncestors(parentKey); // Recursive call
+        const findAncestors = (currentId: string) => {
+            for (const [parentId, children] of Object.entries(hierarchy)) {
+                if (children.includes(currentId)) {
+                    parents.push(parentId);
+                    findAncestors(parentId); // Recursive call
                 }
             }
         };
@@ -154,9 +153,8 @@ export class FulfilmentTracker {
             // Add section-level path
             const leafPath = this.lookupMaps.moduleToLeafPaths[pathId];
             if (leafPath && leafPath.length > 0) {
-                const sectionKey = `${programmeId}-${leafPath[0].groupType}`;
-                if (!parents.includes(sectionKey)) {
-                    parents.push(sectionKey);
+                if (!parents.includes(pathId)) {
+                    parents.push(pathId);
                 }
             }
         }
@@ -281,6 +279,7 @@ export class FulfilmentTracker {
         for (const module of selectedModules) {
             const leafPaths = this.lookupMaps.moduleToLeafPaths[module] || [];
             const allocatedProgrammes = doubleCountModules.get(module) || [];
+            console.log(`Checking auto-include for ${module} in major ${majorProgramme.programmeId} - allocated to:`, allocatedProgrammes);
             
             // Check if module is used in major programme
             const isUsedInMajor = leafPaths.some(path => 
