@@ -31,12 +31,12 @@ export default function SelectProgrammesPage() {
     primaryMajor,
     secondaryMajor,
     minors,
-    getAllSelectedIds, // Changed from getAllSelected
+    getAllSelectedIds,
     isDuplicate,
     resetAll,
-    fetchProgrammes, // New method to fetch programmes
-    isLoading: storeLoading, // Renamed to avoid conflict
-    error: storeError, // Renamed to avoid conflict
+    fetchProgrammes,
+    isLoading: storeLoading,
+    error: storeError,
     availableMajors,
     availableSecondMajors,
     availableMinors,
@@ -105,7 +105,7 @@ export default function SelectProgrammesPage() {
       }
 
       // Load global planner store
-      loadProgrammes(programmes, programmes[0].lookupMaps);
+      loadProgrammes(programmes, res.data.lookup);
       setLoaded(true);
     } catch (err: any) {
       console.error(err);

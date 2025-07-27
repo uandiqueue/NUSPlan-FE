@@ -7,7 +7,7 @@ export class RealtimeValidator {
     private validationState: ValidationState;
     private lookupMaps: LookupMaps;
     private programmes: any[];
-    
+
     // Cache for module AUs to avoid repeated database calls during validation
     private moduleAUCache = new Map<ModuleCode, number>();
 
@@ -15,7 +15,7 @@ export class RealtimeValidator {
         this.validationState = validationState;
         this.lookupMaps = lookupMaps;
         this.programmes = programmes;
-        
+
         // Preload module data when validator is initialized
         this.preloadModuleData();
     }
@@ -28,22 +28,22 @@ export class RealtimeValidator {
         try {
             // Collect all unique modules from lookup maps
             const allModules = new Set<ModuleCode>();
-            
+
             // Add modules from module-to-leaf-paths mapping
             Object.keys(this.lookupMaps.moduleToLeafPaths).forEach(moduleCode => {
                 allModules.add(moduleCode as ModuleCode);
             });
-            
+
             // Add modules from leaf-path-to-modules mapping
             Object.values(this.lookupMaps.leafPathToModules).forEach(modules => {
                 modules.forEach(moduleCode => allModules.add(moduleCode));
             });
 
             console.log(`Preloading ${allModules.size} modules for validation...`);
-            
+
             // Preload modules in the database service (this will cache them)
             await dbService.preloadModules(Array.from(allModules));
-            
+
             console.log('Module preloading completed');
         } catch (error) {
             console.error('Error preloading module data:', error);
@@ -104,7 +104,7 @@ export class RealtimeValidator {
         for (const maxRuleId of maxRuleIds) {
             const currentFulfilled = this.validationState.maxRuleFulfillment.get(maxRuleId) || 0;
             const maxRule = this.getMaxRule(maxRuleId);
-            
+
             if (!maxRule) continue;
 
             // Check if adding this module would exceed the cap
@@ -112,7 +112,7 @@ export class RealtimeValidator {
                 // Cap reached - strip tags for this path context
                 const pathKey = this.extractPathKeyFromMaxRule(maxRuleId);
                 this.stripTagForPath(module, pathKey);
-                
+
                 // Strip tags for all other modules in this max rule
                 const affectedModules = this.getModulesForMaxRule(maxRuleId);
                 affectedModules.forEach(affectedModule => {
@@ -165,7 +165,7 @@ export class RealtimeValidator {
         for (const programmeId of eligibleProgrammes) {
             const currentUsage = this.validationState.doubleCountUsage.get(programmeId) || 0;
             const programme = this.getProgramme(programmeId);
-            
+
             if (programme && currentUsage + moduleAU <= programme.metadata.doubleCountCap) {
                 availableProgrammes.push(programmeId);
             }
@@ -178,7 +178,7 @@ export class RealtimeValidator {
             const hasCommonCore = doubleCountInfo.intraProgrammePaths.some(
                 path => path.groupType === 'commonCore'
             );
-            
+
             if (hasCommonCore && targetGroupType !== 'commonCore') {
                 result.warnings.push(
                     `${module} can double-count within the same programme (commonCore + ${targetGroupType})`
@@ -187,7 +187,7 @@ export class RealtimeValidator {
         }
 
         // Determine if user decision is required
-        if (availableProgrammes.length > 1 || 
+        if (availableProgrammes.length > 1 ||
             (availableProgrammes.length === 1 && hasIntraProgrammeEligibility)) {
             result.requiresDecision = true;
         }
@@ -208,11 +208,11 @@ export class RealtimeValidator {
      */
     private async checkTripleCountViolation(module: ModuleCode): Promise<ValidationResult> {
         const currentUsage = this.validationState.moduleUsageCount.get(module) || 0;
-        
+
         if (currentUsage >= 2) {
             // Record as violating module
             this.validationState.violatingModules.add(module);
-            
+
             return {
                 isValid: false,
                 errors: [`${module} is already used in 2 requirements (maximum allowed)`],
@@ -243,50 +243,57 @@ export class RealtimeValidator {
 
     private async addModuleToValidationState(module: ModuleCode, boxKey: string): Promise<void> {
         const moduleAU = await this.getModuleAU(module);
-        
+
         // Update usage count
         const currentUsage = this.validationState.moduleUsageCount.get(module) || 0;
         this.validationState.moduleUsageCount.set(module, currentUsage + 1);
-        
+
         // Update max rule fulfillment
         const maxRuleIds = this.lookupMaps.moduleToMaxRules[module] || [];
         for (const maxRuleId of maxRuleIds) {
             const currentFulfilled = this.validationState.maxRuleFulfillment.get(maxRuleId) || 0;
             this.validationState.maxRuleFulfillment.set(maxRuleId, currentFulfilled + moduleAU);
         }
-        
-        // Update double count usage (this will be set by decision dialog)
+
+        // Update double count usage (set by decision dialog)
         const allocatedProgrammes = this.validationState.doubleCountModules.get(module) || [];
         for (const programmeId of allocatedProgrammes) {
             const currentUsage = this.validationState.doubleCountUsage.get(programmeId) || 0;
             this.validationState.doubleCountUsage.set(programmeId, currentUsage + moduleAU);
         }
-        
+
         // Add to selected modules
         this.validationState.selectedModules.add(module);
-        this.validationState.moduleToBoxMapping.set(module, boxKey);
+
+        let boxSet = this.validationState.moduleToBoxMapping.get(module);
+        if (!boxSet) {
+            boxSet = new Set<string>();
+        }
+        boxSet.add(boxKey);
+        this.validationState.moduleToBoxMapping.set(module, boxSet);
     }
+
 
     private async removeModuleFromValidationState(module: ModuleCode, boxKey: string): Promise<void> {
         const moduleAU = await this.getModuleAU(module);
-        
+
         // Update usage count
         const currentUsage = this.validationState.moduleUsageCount.get(module) || 0;
         const newUsage = Math.max(0, currentUsage - 1);
         this.validationState.moduleUsageCount.set(module, newUsage);
-        
+
         // Remove from violating modules if no longer violating
         if (newUsage < 2) {
             this.validationState.violatingModules.delete(module);
         }
-        
+
         // Update max rule fulfillment
         const maxRuleIds = this.lookupMaps.moduleToMaxRules[module] || [];
         for (const maxRuleId of maxRuleIds) {
             const currentFulfilled = this.validationState.maxRuleFulfillment.get(maxRuleId) || 0;
             const newFulfilled = Math.max(0, currentFulfilled - moduleAU);
             this.validationState.maxRuleFulfillment.set(maxRuleId, newFulfilled);
-            
+
             // Restore tags if max rule is no longer exceeded
             const maxRule = this.getMaxRule(maxRuleId);
             if (maxRule && newFulfilled <= maxRule.maxUnits) {
@@ -294,20 +301,20 @@ export class RealtimeValidator {
                 this.restoreTagForPath(module, pathKey);
             }
         }
-        
-        // Update double count usage
-        const allocatedProgrammes = this.validationState.doubleCountModules.get(module) || [];
-        for (const programmeId of allocatedProgrammes) {
-            const currentUsage = this.validationState.doubleCountUsage.get(programmeId) || 0;
-            const newUsage = Math.max(0, currentUsage - moduleAU);
-            this.validationState.doubleCountUsage.set(programmeId, newUsage);
+
+        const boxSet = this.validationState.moduleToBoxMapping.get(module);
+        if (boxSet) {
+            boxSet.delete(boxKey);
+            if (boxSet.size === 0) {
+                this.validationState.moduleToBoxMapping.delete(module);
+                // Optionally also remove from selectedModules if not selected elsewhere:
+                // this.validationState.selectedModules.delete(module);
+            } else {
+                this.validationState.moduleToBoxMapping.set(module, boxSet);
+            }
         }
-        
-        // Remove from tracking
-        this.validationState.selectedModules.delete(module);
-        this.validationState.moduleToBoxMapping.delete(module);
-        this.validationState.doubleCountModules.delete(module);
     }
+
 
     /**
      * Restore tag for a specific path context
@@ -327,7 +334,7 @@ export class RealtimeValidator {
      */
     async applyDoubleCountDecision(module: ModuleCode, selectedProgrammes: string[]): Promise<void> {
         this.validationState.doubleCountModules.set(module, selectedProgrammes);
-        
+
         const moduleAU = await this.getModuleAU(module);
         for (const programmeId of selectedProgrammes) {
             const currentUsage = this.validationState.doubleCountUsage.get(programmeId) || 0;
@@ -345,7 +352,7 @@ export class RealtimeValidator {
         if (this.moduleAUCache.has(module)) {
             return this.moduleAUCache.get(module)!;
         }
-        
+
         // Fallback to database
         try {
             const au = await dbService.getModuleAU(module);

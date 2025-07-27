@@ -18,22 +18,22 @@ interface PlannerState {
     programme: ProgrammePayload;
     lookupMaps: LookupMaps;
     selectedProgramIndex: number;
-    
+
     // Validation and UI state
     validationState: ValidationState;
     progressState: ProgressState;
     pendingDecision: PendingDecision | null;
-    
+
     // Service instances
     validator: RealtimeValidator | null;
     optimizer: Optimizer | null;
     tracker: FulfilmentTracker | null;
-    
+
     // UI state
     isLoading: boolean;
     error: string | null;
     warnings: string[];
-    
+
     // Database integration status
     dbStatus: {
         isConnected: boolean;
@@ -43,7 +43,7 @@ interface PlannerState {
             preclusionsCached: number;
         };
     };
-    
+
     // Actions
     loadProgrammes: (programmes: ProgrammePayload[], lookupMaps: LookupMaps) => Promise<void>;
     switchProgramme: (index: number) => void;
@@ -51,13 +51,14 @@ interface PlannerState {
     removeModule: (module: ModuleCode, boxKey: string) => Promise<void>;
     resolveDecision: (selectedProgrammes: string[]) => Promise<void>;
     cancelDecision: () => void;
-    
+    getDuplicateModules: () => Set<ModuleCode>;
+
     // Enhanced getters with database integration
     getModuleInfo: (module: ModuleCode) => Promise<any>;
     getFilteredOptions: (boxOptions: ModuleCode[]) => Promise<any[]>;
     getProgressSummary: (programmeId: string) => Promise<any>;
     getRequirementTree: (programmeId: string) => Promise<any[]>;
-    
+
     // Utility actions
     clearCaches: () => void;
     refreshData: () => Promise<void>;
@@ -70,7 +71,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     programme: {} as ProgrammePayload,
     lookupMaps: {} as LookupMaps,
     selectedProgramIndex: 0,
-    
+
     validationState: {
         maxRuleFulfillment: new Map(),
         strippedTags: new Map(),
@@ -81,7 +82,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         selectedModules: new Set(),
         moduleToBoxMapping: new Map()
     },
-    
+
     progressState: {
         pathFulfillment: new Map(),
         pathModules: new Map(),
@@ -93,16 +94,16 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
             overflow: 0
         }
     },
-    
+
     pendingDecision: null,
     validator: null,
     optimizer: null,
     tracker: null,
-    
+
     isLoading: false,
     error: null,
     warnings: [],
-    
+
     dbStatus: {
         isConnected: false,
         cacheStats: {
@@ -117,10 +118,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
      */
     loadProgrammes: async (programmes, lookupMaps) => {
         set({ isLoading: true, error: null });
-        
+
         try {
             // console.log('Loading programmes with database integration...'); // DEBUGGING PURPOSES
-            
+
             // Initialize validation and progress states
             const validationState: ValidationState = {
                 maxRuleFulfillment: new Map(),
@@ -132,7 +133,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
                 selectedModules: new Set(),
                 moduleToBoxMapping: new Map()
             };
-            
+
             const progressState: ProgressState = {
                 pathFulfillment: new Map(),
                 pathModules: new Map(),
@@ -152,7 +153,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
             // Get database status
             const cacheStats = dbService.getCacheStats();
-            
+
             set({
                 programmes,
                 programme: programmes[0],
@@ -169,9 +170,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
                     cacheStats
                 }
             });
-            
+
             // console.log('Programmes loaded successfully with database integration'); // DEBUGGING PURPOSES
-            
+
         } catch (error) {
             console.error('Error loading programmes:', error);
             set({
@@ -196,7 +197,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
      */
     selectModule: async (module, boxKey) => {
         const { validator, optimizer, tracker, validationState } = get();
-        
+
         if (!validator || !optimizer || !tracker) {
             return {
                 isValid: false,
@@ -207,13 +208,13 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         }
 
         set({ isLoading: true });
-        
+
         try {
             // Perform validation
             const validationResult = await validator.validateSelection(module, boxKey);
-            
+
             if (!validationResult.isValid) {
-                set({ 
+                set({
                     warnings: validationResult.errors,
                     isLoading: false
                 });
@@ -224,7 +225,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
             if (validationResult.requiresDecision) {
                 const decision = await optimizer.createDoubleCountDecision(module, boxKey);
                 if (decision) {
-                    set({ 
+                    set({
                         pendingDecision: decision,
                         isLoading: false
                     });
@@ -234,10 +235,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
             // Update validation state
             await validator.updateValidationState(module, boxKey, 'ADD');
-            
+
             // Update progress tracking
             await tracker.updateProgress(module, 'ADD');
-            
+
             // Update UI state
             set(state => ({
                 validationState: { ...state.validationState },
@@ -247,7 +248,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
             }));
 
             return validationResult;
-            
+
         } catch (error) {
             console.error('Error selecting module:', error);
             const errorResult: ValidationResult = {
@@ -256,12 +257,12 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
                 warnings: [],
                 requiresDecision: false
             };
-            
-            set({ 
+
+            set({
                 error: 'Failed to select module',
                 isLoading: false
             });
-            
+
             return errorResult;
         }
     },
@@ -271,18 +272,18 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
      */
     removeModule: async (module, boxKey) => {
         const { validator, tracker } = get();
-        
+
         if (!validator || !tracker) return;
 
         set({ isLoading: true });
-        
+
         try {
             // Update validation state
             await validator.updateValidationState(module, boxKey, 'REMOVE');
-            
+
             // Update progress tracking
             await tracker.updateProgress(module, 'REMOVE');
-            
+
             // Update UI state
             set(state => ({
                 validationState: { ...state.validationState },
@@ -290,10 +291,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
                 warnings: [],
                 isLoading: false
             }));
-            
+
         } catch (error) {
             console.error('Error removing module:', error);
-            set({ 
+            set({
                 error: 'Failed to remove module',
                 isLoading: false
             });
@@ -305,21 +306,21 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
      */
     resolveDecision: async (selectedProgrammes) => {
         const { pendingDecision, validator, tracker } = get();
-        
+
         if (!pendingDecision || !validator || !tracker) return;
 
         set({ isLoading: true });
-        
+
         try {
             // Apply the decision
             await validator.applyDoubleCountDecision(pendingDecision.module, selectedProgrammes);
-            
+
             // Update validation state
             await validator.updateValidationState(pendingDecision.module, pendingDecision.boxKey, 'ADD');
-            
+
             // Update progress tracking
             await tracker.updateProgress(pendingDecision.module, 'ADD');
-            
+
             // Clear pending decision
             set(state => ({
                 validationState: { ...state.validationState },
@@ -327,10 +328,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
                 pendingDecision: null,
                 isLoading: false
             }));
-            
+
         } catch (error) {
             console.error('Error resolving decision:', error);
-            set({ 
+            set({
                 error: 'Failed to resolve decision',
                 isLoading: false
             });
@@ -344,13 +345,24 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         set({ pendingDecision: null });
     },
 
+    getDuplicateModules: () => {
+        const { moduleToBoxMapping } = get().validationState;
+        const duplicates: Set<ModuleCode> = new Set();
+        moduleToBoxMapping.forEach((boxes, module) => {
+            if (boxes.size > 1) {
+                duplicates.add(module);
+            }
+        });
+        return duplicates;
+    },
+
     /**
      * Get detailed module information with database integration
      */
     getModuleInfo: async (module) => {
         const { optimizer } = get();
         if (!optimizer) return null;
-        
+
         try {
             return await optimizer.getModuleInfo(module);
         } catch (error) {
@@ -365,7 +377,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     getFilteredOptions: async (boxOptions) => {
         const { optimizer } = get();
         if (!optimizer) return [];
-        
+
         try {
             return await optimizer.getFilteredDropdownOptions(boxOptions);
         } catch (error) {
@@ -380,7 +392,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     getProgressSummary: async (programmeId) => {
         const { tracker } = get();
         if (!tracker) return null;
-        
+
         try {
             return await tracker.getDetailedProgressSummary(programmeId);
         } catch (error) {
@@ -395,7 +407,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     getRequirementTree: async (programmeId) => {
         const { tracker } = get();
         if (!tracker) return [];
-        
+
         try {
             return await tracker.buildRequirementTree(programmeId);
         } catch (error) {
@@ -409,11 +421,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
      */
     clearCaches: () => {
         const { validator, optimizer, tracker } = get();
-        
+
         dbService.clearCache();
         optimizer?.clearCaches();
         tracker?.clearCaches();
-        
+
         // Update cache stats
         const cacheStats = dbService.getCacheStats();
         set(state => ({
@@ -429,10 +441,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
      */
     refreshData: async () => {
         const { programmes, lookupMaps } = get();
-        
+
         // Clear caches first
         get().clearCaches();
-        
+
         // Reload programmes
         await get().loadProgrammes(programmes, lookupMaps);
     },
@@ -442,12 +454,12 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
      */
     getSystemStats: () => {
         const { validator, optimizer, tracker, programmes, validationState, progressState } = get();
-        
+
         const dbStats = dbService.getCacheStats();
         const validationStats = validator?.getValidationStats();
         const optimizerStats = optimizer?.getOptimizerStats();
         const trackerStats = tracker?.getTrackerStats();
-        
+
         return {
             database: dbStats,
             validation: validationStats,

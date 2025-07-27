@@ -39,6 +39,7 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
   const theme = useTheme();
   const upLg = useMediaQuery(theme.breakpoints.up('lg'));
 
+
   // Local UI state
   const [hideWarn, setHideWarn] = useState(false);
   const [isPreloading, setIsPreloading] = useState(false);

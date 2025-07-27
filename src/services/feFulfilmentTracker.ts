@@ -534,9 +534,9 @@ export class FulfilmentTracker {
             // Get detailed module information
             const moduleDetails = await dbService.getModulesDetails(sectionModules);
             const modules = moduleDetails.map(module => ({
-                moduleCode: module.moduleCode,
+                moduleCode: module.module_code,
                 title: module.title,
-                au: module.moduleUnit
+                au: Number(module.module_credit)
             }));
 
             sectionBreakdown.push({

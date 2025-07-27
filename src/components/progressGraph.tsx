@@ -5,7 +5,6 @@ import { usePlannerStore } from '../store/usePlannerStore';
 interface ProgressSummary {
   requiredUnits: number;
   fulfilledUnits: number;
-  // add other fields if your service returns more
 }
 
 export default function ProgressGraph() {
@@ -20,7 +19,7 @@ export default function ProgressGraph() {
     getProgressSummary(programme.programmeId)
       .then((data: any) => {
         if (cancelled) return;
-        // Adapt these properties to match your actual response
+        // To change to match response
         setSummary({
           requiredUnits: data.requiredUnits ?? data.required ?? 0,
           fulfilledUnits: data.fulfilledUnits ?? data.fulfilled ?? 0,

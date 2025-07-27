@@ -1,367 +1,460 @@
-import { supabase } from '../config/supabase';
-import type { ModuleCode } from '../types/nusmods-types';
-import type { 
-    FEModuleData, 
-    FEPreclusionData, 
-    FEPrerequisiteData,
-    CachedModuleInfo
-} from '../types/frontend-types';
+import { supabase } from "../config/supabase";
+import type { ModuleCode } from "../types/nusmods-types";
+import type { LookupMaps } from "../types/shared-types";
+import type {
+  dbCache,
+  ModuleData,
+  RequirementPathData,
+  GMCMappingData,
+  PrerequisiteRule,
+  PreclusionData
+} from "../types/frontend-types";
 
-export class FrontendDatabaseService {
-    private static instance: FrontendDatabaseService;
-    
-    // Cache configurations
-    private readonly MODULE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
-    private readonly RULES_CACHE_TTL = 60 * 60 * 1000; // 1 hour
-    
-    // Cache storage
-    private moduleCache = new Map<ModuleCode, CachedModuleInfo>();
-    private prerequisiteCache = new Map<ModuleCode, { data: ModuleCode[], timestamp: number }>();
-    private preclusionCache = new Map<ModuleCode, { data: ModuleCode[], timestamp: number }>();
-    
-    // Batch request deduplication
-    private pendingModuleRequests = new Map<string, Promise<FEModuleData[]>>();
-    private pendingPrereqRequests = new Map<string, Promise<FEPrerequisiteData[]>>();
-    private pendingPreclusionRequests = new Map<string, Promise<FEPreclusionData[]>>();
+/**
+ * FEDatabaseQueryService class to handle database queries for FE.
+ * It provides methods to fetch prerequisites, preclusions, module, and paths data from Supabase.
+ */
+export class FEDatabaseQueryService {
 
-    private constructor() {}
+  private static instance: FEDatabaseQueryService;
+  private cache: dbCache = {
+    modules: new Map(),
+    paths: new Map(),
+    preclusions: new Map(),
+    prerequisites: new Map(),
+    gmcs: new Map(),
+    isPreloaded: false
+  };
 
-    public static getInstance(): FrontendDatabaseService {
-        if (!FrontendDatabaseService.instance) {
-            FrontendDatabaseService.instance = new FrontendDatabaseService();
-        }
-        return FrontendDatabaseService.instance;
+  private constructor() { }
+
+  public static getInstance(): FEDatabaseQueryService {
+    if (!FEDatabaseQueryService.instance) {
+      FEDatabaseQueryService.instance = new FEDatabaseQueryService();
+    }
+    return FEDatabaseQueryService.instance;
+  }
+
+  async preloadModules(moduleCodes: ModuleCode[]): Promise<void> {
+    if (moduleCodes.length === 0) return;
+    const modules = await this.getModulesDetails(moduleCodes);
+    modules.forEach(m => this.cache.modules.set(m.module_code as ModuleCode, m));
+  }
+
+  /**
+   * Initialize cache after user selects programmes.
+   * 1. Extract all requirement paths using programmeIds
+   * 2. After BE response, extract all moduleCodes from lookup maps and batch fetch everything
+   */
+  async initializeCache(
+    programmeIds: string[],
+    lookupMaps?: LookupMaps
+  ): Promise<void> {
+    console.log('Initializing cache...');
+
+    // Fetch all requirement pathIds for these programmes
+    try {
+      console.log(`Fetching paths for programmes: ${programmeIds.join(', ')}`);
+      const pathMap = await this.getRequirementPaths(programmeIds);
+      const gmcsMap = await this.getGMCMappings(programmeIds);
+      this.cache.paths = new Map(pathMap.map(path => [path.id, path]));
+
+      // Group GMC mappings by gmc_code, map gmc_code to module_codes
+      const gmcsGrouped = new Map<string, ModuleCode[]>();
+      gmcsMap.forEach(gmc => {
+        const arr = gmcsGrouped.get(gmc.gmc_code) || [];
+        arr.push(gmc.module_code as ModuleCode);
+        gmcsGrouped.set(gmc.gmc_code, arr);
+      });
+      this.cache.gmcs = gmcsGrouped;
+
+    } catch (err) {
+      console.error('Error fetching programme paths:', err);
+      return;
     }
 
-    /**
-     * Get module credits (AU) for a single module
-     * This is the most commonly called method, so it's heavily optimized with caching
-     */
-    async getModuleAU(moduleCode: ModuleCode): Promise<number> {
-        const cached = this.moduleCache.get(moduleCode);
-        
-        if (cached && (Date.now() - cached.timestamp) < this.MODULE_CACHE_TTL) {
-            return cached.moduleUnit;
-        }
-
-        // Fetch fresh data if not cached or expired
-        const modules = await this.getModulesDetails([moduleCode]);
-        if (modules.length === 0) {
-            console.warn(`Module ${moduleCode} not found, defaulting to 4 AU`);
-            return 4; // Safe fallback
-        }
-
-        return modules[0].moduleUnit;
+    if (!lookupMaps) {
+      console.log('Waiting for LookupMap...');
+      return;
     }
 
-    /**
-     * Get detailed module information with intelligent batching and caching
-     */
-    async getModulesDetails(moduleCodes: ModuleCode[]): Promise<FEModuleData[]> {
-        if (moduleCodes.length === 0) return [];
-
-        // Check cache first and separate cached vs uncached modules
-        const cachedResults: FEModuleData[] = [];
-        const uncachedCodes: ModuleCode[] = [];
-        const now = Date.now();
-
-        for (const code of moduleCodes) {
-            const cached = this.moduleCache.get(code);
-            if (cached && (now - cached.timestamp) < this.MODULE_CACHE_TTL) {
-                cachedResults.push({
-                    moduleCode: cached.moduleCode,
-                    title: cached.title,
-                    moduleUnit: cached.moduleUnit,
-                    description: cached.description,
-                    department: cached.department,
-                    faculty: cached.faculty
-                });
-            } else {
-                uncachedCodes.push(code);
-            }
-        }
-
-        // If all modules are cached, return immediately
-        if (uncachedCodes.length === 0) {
-            return cachedResults;
-        }
-
-        // Batch fetch uncached modules to prevent duplicate requests
-        const batchKey = uncachedCodes.sort().join(',');
-        
-        if (!this.pendingModuleRequests.has(batchKey)) {
-            const fetchPromise = this.fetchModulesFromDB(uncachedCodes);
-            this.pendingModuleRequests.set(batchKey, fetchPromise);
-            
-            // Clean up pending request after completion
-            fetchPromise.finally(() => {
-                this.pendingModuleRequests.delete(batchKey);
-            });
-        }
-
-        const freshResults = await this.pendingModuleRequests.get(batchKey)!;
-        
-        // Update cache with fresh results
-        for (const module of freshResults) {
-            this.moduleCache.set(module.moduleCode, {
-                moduleCode: module.moduleCode,
-                title: module.title,
-                moduleUnit: module.moduleUnit,
-                description: module.description,
-                department: module.department,
-                faculty: module.faculty,
-                timestamp: now
-            });
-        }
-
-        return [...cachedResults, ...freshResults];
+    // After LookupMaps are ready, build the module cache
+    const allModuleCodes = this.extractAllModuleCodes(lookupMaps);
+    const moduleCodes = Array.from(allModuleCodes);
+    if (moduleCodes.length === 0) {
+      console.warn('No module codes found in LookupMap.');
+      return;
     }
 
-    /**
-     * Get prerequisite relationships with caching
-     */
-    async getBatchSimplePrerequisites(moduleCodes: ModuleCode[]): Promise<FEPrerequisiteData[]> {
-        if (moduleCodes.length === 0) return [];
+    try {
+      const [moduleDetails, preclusions] = await Promise.all([
+        this.getModulesDetails(moduleCodes),
+        this.getBatchPreclusions(moduleCodes)
+      ]);
 
-        const cachedResults: FEPrerequisiteData[] = [];
-        const uncachedCodes: ModuleCode[] = [];
-        const now = Date.now();
+      // Cache module modules
+      moduleDetails.forEach((moduleData: ModuleData) =>
+        this.cache.modules.set(moduleData.module_code as ModuleCode, moduleData)
+      );
+      // Cache preclusions
+      preclusions.forEach(pc =>
+        this.cache.preclusions.set(pc.module_code as ModuleCode, pc)
+      );
 
-        // Check cache first
-        for (const code of moduleCodes) {
-            const cached = this.prerequisiteCache.get(code);
-            if (cached && (now - cached.timestamp) < this.RULES_CACHE_TTL) {
-                cachedResults.push({
-                    moduleCode: code,
-                    requiredModules: cached.data
-                });
-            } else {
-                uncachedCodes.push(code);
-            }
-        }
+      this.cache.isPreloaded = true;
+      console.log('Cache initialized successfully.');
+    } catch (err) {
+      console.error('Error initializing cache:', err);
+    }
+  }
 
-        if (uncachedCodes.length === 0) {
-            return cachedResults;
-        }
+  // MODULE QUERIES
 
-        // Batch fetch uncached prerequisites
-        const batchKey = uncachedCodes.sort().join(',');
-        
-        if (!this.pendingPrereqRequests.has(batchKey)) {
-            const fetchPromise = this.fetchPrerequisitesFromDB(uncachedCodes);
-            this.pendingPrereqRequests.set(batchKey, fetchPromise);
-            
-            fetchPromise.finally(() => {
-                this.pendingPrereqRequests.delete(batchKey);
-            });
-        }
+  /**
+   * Extract all unique module codes from moduleToLeafPaths in lookup.
+   */
+  private extractAllModuleCodes(lookupMaps: LookupMaps): Set<ModuleCode> {
+    const allModuleCodes = new Set<ModuleCode>();
+    if (lookupMaps.moduleToLeafPaths) {
+      Object.keys(lookupMaps.moduleToLeafPaths).forEach(moduleCode => {
+        allModuleCodes.add(moduleCode as ModuleCode);
+      });
+    }
+    return allModuleCodes;
+  }
 
-        const freshResults = await this.pendingPrereqRequests.get(batchKey)!;
-        
-        // Update cache
-        for (const prereq of freshResults) {
-            this.prerequisiteCache.set(prereq.moduleCode, {
-                data: prereq.requiredModules,
-                timestamp: now
-            });
-        }
+  async getModuleAU(moduleCode: ModuleCode): Promise<number> {
+    try {
+      // Check cache first
+      const cached = this.cache.modules.get(moduleCode);
+      if (cached) {
+        return cached.module_credit ? Number(cached.module_credit) : 4; // Default to 4 units if not specified
+      }
 
-        return [...cachedResults, ...freshResults];
+      // Not in cache, fetch individually using batch function
+      const modules = await this.getModulesDetails([moduleCode]);
+      if (modules.length === 0) {
+        console.warn(`${moduleCode} not found in database, defaulting to 4 AU`);
+        return 4;
+      }
+
+      // Cache the result
+      this.cache.modules.set(moduleCode, modules[0]);
+      return Number(modules[0].module_credit);
+    } catch (error) {
+      console.error(`Failed to query AU for ${moduleCode}:`, error);
+      return 4;
+    }
+  }
+
+  async getModuleDetails(moduleCode: ModuleCode): Promise<ModuleData | null> {
+    try {
+      // Check cache first
+      const cached = this.cache.modules.get(moduleCode);
+      if (cached) {
+        return cached;
+      }
+
+      // Not in cache, fetch individually
+      const modules = await this.getModulesDetails([moduleCode]);
+      if (modules.length === 0) {
+        console.warn(`${moduleCode} details not found in database`);
+        return null;
+      }
+
+      // Cache the result
+      this.cache.modules.set(moduleCode, modules[0]);
+      return modules[0];
+    } catch (error) {
+      console.error(`Failed to query details for ${moduleCode}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Batch fetch module modules (no caching)
+   */
+  async getModulesDetails(moduleCodes: ModuleCode[]): Promise<ModuleData[]> {
+    if (moduleCodes.length === 0) return [];
+
+    try {
+      const { data, error } = await supabase
+        .from('modules')
+        .select(`
+          module_code, title, module_credit, description, 
+          department, faculty, aliases, 
+          prerequisite, preclusion, semester_data
+        `)
+        .in('module_code', moduleCodes);
+
+      if (error) {
+        console.error('Error batch fetching module modules:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Failed to batch fetch module modules:', error);
+      return [];
+    }
+  }
+
+  // PRECLUSION QUERIES
+
+  async getModulePreclusions(moduleCode: ModuleCode): Promise<ModuleCode[]> {
+    try {
+      // Check cache first
+      const cached = this.cache.preclusions.get(moduleCode);
+      if (cached) {
+        return Array.isArray(cached.precluded_modules) ?
+          cached.precluded_modules.map(m => m as ModuleCode) : [];
+      }
+
+      // Not in cache, fetch using RPC function
+      const { data, error } = await supabase.rpc('get_module_preclusions', {
+        p_module_code: moduleCode
+      });
+      if (error) {
+        console.error(`Error fetching preclusions for ${moduleCode}:`, error);
+        return [];
+      }
+
+      // Cache the result
+      this.cache.preclusions.set(moduleCode, data[0]);
+      return Array.isArray((data[0] as PreclusionData).precluded_modules)
+        ? (data[0] as PreclusionData).precluded_modules.map((m: string) => m as ModuleCode)
+        : [];
+    } catch (err) {
+      console.error(`Failed to query preclusions for ${moduleCode}:`, err);
+      return [];
+    }
+  }
+
+  /**
+   * Batch fetch preclusion data for multiple modules (no caching)
+   */
+  async getBatchPreclusions(moduleCodes: ModuleCode[]): Promise<PreclusionData[]> {
+    if (moduleCodes.length === 0) return [];
+
+    try {
+      const { data, error } = await supabase
+        .from('preclusion_rules')
+        .select('module_code, precluded_modules')
+        .in('module_code', moduleCodes);
+
+      if (error) {
+        console.error('Error fetching batch preclusions:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Failed to query batch preclusions:', error);
+      return [];
+    }
+  }
+
+  // PATH QUERIES
+
+  /**
+   * Get all requirement paths for programmes (no caching)
+   */
+  async getRequirementPaths(programmeIds: string[]): Promise<RequirementPathData[]> {
+    try {
+      const { data, error } = await supabase
+        .from('programme_requirement_paths')
+        .select(`
+          id, programme_id, path_key, parent_path_key, 
+          display_label, logic_type, rule_type, rule_value, 
+          required_units, depth, is_leaf, is_readonly, 
+          group_type, raw_tag_name, module_codes, module_types,
+          is_overall_source, exception_modules
+        `)
+        .in('programme_id', programmeIds)
+        .order('depth', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching requirement paths:', error);
+        return [];
+      }
+
+      return data || [];
+    } catch (error) {
+      console.error('Failed to query requirement paths:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch requirement path by path id.
+   */
+  async getRequirementPathById(pathId: string): Promise<RequirementPathData | null> {
+    // Check cache first
+    const cached = this.cache.paths.get(pathId);
+    if (cached) {
+      return cached;
     }
 
-    /**
-     * Get preclusion relationships with caching
-     */
-    async getBatchPreclusions(moduleCodes: ModuleCode[]): Promise<FEPreclusionData[]> {
-        if (moduleCodes.length === 0) return [];
+    try {
+      const { data, error } = await supabase
+        .from('programme_requirement_paths')
+        .select(`
+          id, programme_id, path_key, parent_path_key, 
+          display_label, logic_type, rule_type, rule_value, 
+          required_units, depth, is_leaf, is_readonly, 
+          group_type, raw_tag_name, module_codes, module_types,
+          is_overall_source, exception_modules
+        `)
+        .eq('id', pathId)
+        .single();
+      if (error || !data) {
+        console.error(`Error fetching requirement path for id ${pathId}:`, error);
+        return null;
+      }
 
-        const cachedResults: FEPreclusionData[] = [];
-        const uncachedCodes: ModuleCode[] = [];
-        const now = Date.now();
-
-        // Check cache first
-        for (const code of moduleCodes) {
-            const cached = this.preclusionCache.get(code);
-            if (cached && (now - cached.timestamp) < this.RULES_CACHE_TTL) {
-                cachedResults.push({
-                    moduleCode: code,
-                    precludedModules: cached.data
-                });
-            } else {
-                uncachedCodes.push(code);
-            }
-        }
-
-        if (uncachedCodes.length === 0) {
-            return cachedResults;
-        }
-
-        // Batch fetch uncached preclusions
-        const batchKey = uncachedCodes.sort().join(',');
-        
-        if (!this.pendingPreclusionRequests.has(batchKey)) {
-            const fetchPromise = this.fetchPreclusionsFromDB(uncachedCodes);
-            this.pendingPreclusionRequests.set(batchKey, fetchPromise);
-            
-            fetchPromise.finally(() => {
-                this.pendingPreclusionRequests.delete(batchKey);
-            });
-        }
-
-        const freshResults = await this.pendingPreclusionRequests.get(batchKey)!;
-        
-        // Update cache
-        for (const preclusion of freshResults) {
-            this.preclusionCache.set(preclusion.moduleCode, {
-                data: preclusion.precludedModules,
-                timestamp: now
-            });
-        }
-
-        return [...cachedResults, ...freshResults];
+      // Cache the result
+      this.cache.paths.set(pathId, data as RequirementPathData);
+      return data as RequirementPathData;
+    } catch (error) {
+      console.error(`Failed to query requirement path for id ${pathId}:`, error);
+      return null;
     }
+  }
 
-    /**
-     * Preload modules that are likely to be needed
-     * Call this when the academic plan payload is received to warm the cache
-     */
-    async preloadModules(moduleCodes: ModuleCode[]): Promise<void> {
-        // Preload in chunks to avoid overwhelming the database
-        const CHUNK_SIZE = 50;
-        const chunks = [];
-        
-        for (let i = 0; i < moduleCodes.length; i += CHUNK_SIZE) {
-            chunks.push(moduleCodes.slice(i, i + CHUNK_SIZE));
-        }
+  // PREREQUISITE QUERIES
 
-        // Load chunks in parallel but with some spacing
-        await Promise.all(
-            chunks.map((chunk, index) => 
-                new Promise(resolve => 
-                    setTimeout(() => {
-                        this.getModulesDetails(chunk).then(resolve);
-                    }, index * 100) // 100ms spacing between chunks
-                )
-            )
-        );
+  /**
+   * Get module prerequisites using RPC function
+   */
+  async getModulePrerequisites(moduleCode: ModuleCode): Promise<PrerequisiteRule[]> {
+    try {
+      // Check cache first
+      const cached = this.cache.prerequisites.get(moduleCode);
+      if (cached) {
+        return cached as PrerequisiteRule[];
+      }
+
+      // Not in cache, fetch using RPC function
+      const { data, error } = await supabase.rpc('get_module_prerequisites', {
+        p_module_code: moduleCode
+      });
+      if (error) {
+        console.error(`Error fetching prerequisites for ${moduleCode}:`, error);
+        return [];
+      }
+
+      // Cache the result
+      this.cache.prerequisites.set(moduleCode, data || []);
+      return data || [];
+    } catch (error) {
+      console.error(`Failed to query prerequisites for ${moduleCode}:`, error);
+      return [];
     }
+  }
 
-    /**
-     * Clear all caches (useful for testing or when data updates are detected)
-     */
-    clearCache(): void {
-        this.moduleCache.clear();
-        this.prerequisiteCache.clear();
-        this.preclusionCache.clear();
+  // GMC MAPPING QUERIES
+
+  /**
+   * Get GMC mappings for programmes (no caching)
+   */
+  async getGMCMappings(programmeIds: string[], gmcCodes?: string[]): Promise<GMCMappingData[]> {
+    try {
+      let query = supabase
+        .from('gmc_mappings')
+        .select('gmc_code, gmc_type, module_code, programme_id')
+        .in('programme_id', programmeIds);
+
+      if (gmcCodes && gmcCodes.length > 0) {
+        query = query.in('gmc_code', gmcCodes);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error('Error fetching GMC mappings:', error);
+        return [];
+      }
+      return data || [];
+    } catch (error) {
+      console.error('Failed to query GMC mappings:', error);
+      return [];
     }
+  }
 
-    /**
-     * Get cache statistics for debugging
-     */
-    getCacheStats(): {
-        modulesCached: number;
-        prerequisitesCached: number;
-        preclusionsCached: number;
-    } {
-        return {
-            modulesCached: this.moduleCache.size,
-            prerequisitesCached: this.prerequisiteCache.size,
-            preclusionsCached: this.preclusionCache.size
-        };
+  /**
+   * Get module codes by GMC using RPC function
+   */
+  async getModuleCodeByGMC(gmcCode: string): Promise<ModuleCode[]> {
+    try {
+      // Check cache first
+      const cached = this.cache.gmcs.get(gmcCode);
+      if (cached) {
+        return cached;
+      }
+
+      // Not in cache, fetch using RPC function
+      const { data, error } = await supabase.rpc('get_module_codes_by_gmc', {
+        p_gmc_code: gmcCode
+      });
+      if (error) {
+        console.error(`Error fetching module codes for ${gmcCode} (GMC):`, error);
+        return [];
+      }
+      const moduleCodes = Array.isArray(data) ? data.map((m: string) => m as ModuleCode) : [];
+
+      // Cache the result
+      this.cache.gmcs.set(gmcCode, moduleCodes);
+      return moduleCodes;
+    } catch (err) {
+      console.error(`Failed to query module codes for ${gmcCode} (GMC):`, err);
+      return [];
     }
+  }
 
-    // Private methods for actual database fetching
+  /**
+   * Check if modules exist (for exact GMC validation)
+   */
+  async validateModuleCodes(moduleCodes: string[]): Promise<string[]> {
+    if (moduleCodes.length === 0) return [];
 
-    private async fetchModulesFromDB(moduleCodes: ModuleCode[]): Promise<FEModuleData[]> {
-        try {
-            const { data, error } = await supabase
-                .from('modules')
-                .select('module_code, title, module_credit, description, department, faculty')
-                .in('module_code', moduleCodes);
+    try {
+      const { data, error } = await supabase
+        .from('modules')
+        .select('module_code')
+        .in('module_code', moduleCodes);
 
-            if (error) {
-                console.error('Error fetching modules:', error);
-                return [];
-            }
+      if (error) {
+        console.error('Error validating module codes:', error);
+        return [];
+      }
 
-            return (data || []).map(module => ({
-                moduleCode: module.module_code as ModuleCode,
-                title: module.title,
-                moduleUnit: this.parseModuleCredit(module.module_credit),
-                description: module.description,
-                department: module.department,
-                faculty: module.faculty
-            }));
-        } catch (error) {
-            console.error('Failed to fetch modules:', error);
-            return [];
-        }
+      return data?.map(m => m.module_code) || [];
+    } catch (error) {
+      console.error('Failed to validate module codes:', error);
+      return [];
     }
+  }
 
-    private async fetchPrerequisitesFromDB(moduleCodes: ModuleCode[]): Promise<FEPrerequisiteData[]> {
-        try {
-            const { data, error } = await supabase
-                .from('prerequisite_rules')
-                .select('module_code, required_modules')
-                .eq('rule_type', 'simple')
-                .in('module_code', moduleCodes);
+  getCacheStats(): {
+    modulesCached: number;
+    prerequisitesCached: number;
+    preclusionsCached: number;
+  } {
+    return {
+      modulesCached: this.cache.modules.size,
+      prerequisitesCached: this.cache.prerequisites.size,
+      preclusionsCached: this.cache.preclusions.size
+    };
+  }
 
-            if (error) {
-                console.error('Error fetching prerequisites:', error);
-                return [];
-            }
+  clearCache(): void {
+    this.cache.modules.clear();
+    this.cache.paths.clear();
+    this.cache.preclusions.clear();
+    this.cache.prerequisites.clear();
+    this.cache.gmcs.clear();
+    this.cache.isPreloaded = false;
+  }
 
-            return (data || []).map(prereq => ({
-                moduleCode: prereq.module_code as ModuleCode,
-                requiredModules: Array.isArray(prereq.required_modules)
-                    ? prereq.required_modules.map(m => m as ModuleCode)
-                    : [] as ModuleCode[]
-            }));
-        } catch (error) {
-            console.error('Failed to fetch prerequisites:', error);
-            return [];
-        }
-    }
-
-    private async fetchPreclusionsFromDB(moduleCodes: ModuleCode[]): Promise<FEPreclusionData[]> {
-        try {
-            const { data, error } = await supabase
-                .from('preclusion_rules')
-                .select('module_code, precluded_modules')
-                .in('module_code', moduleCodes);
-
-            if (error) {
-                console.error('Error fetching preclusions:', error);
-                return [];
-            }
-
-            return (data || []).map(preclusion => ({
-                moduleCode: preclusion.module_code as ModuleCode,
-                precludedModules: Array.isArray(preclusion.precluded_modules)
-                    ? preclusion.precluded_modules.map(m => m as ModuleCode)
-                    : [] as ModuleCode[]
-            }));
-        } catch (error) {
-            console.error('Failed to fetch preclusions:', error);
-            return [];
-        }
-    }
-
-    /**
-     * Parse module credit string to number
-     * Handles formats like "4", "4.0", "4 AU", etc.
-     */
-    private parseModuleCredit(creditStr: string): number {
-        if (!creditStr) return 4; // Default fallback
-        
-        const match = creditStr.match(/(\d+(?:\.\d+)?)/);
-        if (match) {
-            return parseFloat(match[1]);
-        }
-        
-        return 4; // Default fallback for unparseable values
-    }
 }
 
-// Export singleton instance
-export const dbService = FrontendDatabaseService.getInstance();
+export const dbService = FEDatabaseQueryService.getInstance();

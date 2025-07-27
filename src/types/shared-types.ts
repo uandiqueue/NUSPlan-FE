@@ -77,7 +77,7 @@ export interface AltPathBox {
     boxKey: string;
     pathId: string;
     programmeId: string;
-    pathAlternatives: string[]; // List of direct children path IDs
+    pathAlternatives: CourseBox[]; // List of direct children path IDs
 }
 
 // VALIDATION LOOKUP MAPS (For FE real-time validation)
@@ -141,6 +141,7 @@ export interface ProcessProgrammesRequest {
 
 export interface ProcessProgrammesResponse {
     programmes: ProgrammePayload[];
+    lookup: LookupMaps;
     globalValidation: ValidationResult;
 }
 
