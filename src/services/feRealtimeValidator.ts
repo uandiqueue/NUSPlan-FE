@@ -1,6 +1,13 @@
-import type { LookupMaps } from '../types/shared-types';
+import type { LookupMaps, CourseBox } from '../types/shared-types';
 import type { ModuleCode } from '../types/nusmods-types';
-import type { ValidationState, ValidationResult } from '../types/frontend-types';
+import type { 
+    ValidationState, 
+    ValidationResult, 
+    PrerequisiteRule,
+    DecisionOption,
+    PendingDecision,
+    RequirementPathData
+} from '../types/frontend-types';
 import { dbService } from './dbQuery';
 
 export class RealtimeValidator {
@@ -8,8 +15,11 @@ export class RealtimeValidator {
     private lookupMaps: LookupMaps;
     private programmes: any[];
 
-    // Cache for module AUs to avoid repeated database calls during validation
-    private moduleAUCache = new Map<ModuleCode, number>();
+    // Prerequisite-related properties
+    private prerequisiteBoxes?: Map<ModuleCode, CourseBox[]>;
+    private prerequisiteDecisions?: Map<ModuleCode, PendingDecision>;
+    private prerequisiteFulfillment?: Map<string, { fulfilled: boolean; selectedModule?: ModuleCode }>;
+    private cachedRuleMap?: Map<string, PrerequisiteRule>;
 
     constructor(validationState: ValidationState, lookupMaps: LookupMaps, programmes: any[]) {
         this.validationState = validationState;
@@ -34,14 +44,9 @@ export class RealtimeValidator {
                 allModules.add(moduleCode as ModuleCode);
             });
 
-            // Add modules from leaf-path-to-modules mapping
-            Object.values(this.lookupMaps.leafPathToModules).forEach(modules => {
-                modules.forEach(moduleCode => allModules.add(moduleCode));
-            });
-
             console.log(`Preloading ${allModules.size} modules for validation...`);
 
-            // Preload modules in the database service (this will cache them)
+            // Preload modules in the database service (just in case, should be preloaded after programme selection)
             await dbService.preloadModules(Array.from(allModules));
 
             console.log('Module preloading completed');
@@ -68,11 +73,18 @@ export class RealtimeValidator {
             return tripleCountResult;
         }
 
-        // 2. Max rule checking
+        // 2. Prerequisite checking
+        const prereqResult = await this.checkPrerequisites(module);
+        result.warnings.push(...prereqResult.warnings);
+        if (prereqResult.requiresDecision) {
+            result.requiresDecision = true;
+        }
+
+        // 3. Max rule checking
         const maxRuleResult = await this.checkMaxRules(module, boxKey);
         result.warnings.push(...maxRuleResult.warnings);
 
-        // 3. Double count tracking
+        // 4. Double count tracking
         const doubleCountResult = await this.checkDoubleCount(module, boxKey);
         if (doubleCountResult.requiresDecision) {
             result.requiresDecision = true;
@@ -83,7 +95,334 @@ export class RealtimeValidator {
     }
 
     /**
-     * 1. Max Rule Stripping Logic
+     * Prerequisite checking logic
+     * 
+     * Rule: Each module may have prerequisites that must be satisfied if it is to be selected.
+     */
+    private async checkPrerequisites(module: ModuleCode): Promise<ValidationResult> {
+        const result: ValidationResult = {
+            isValid: true,
+            errors: [],
+            warnings: [],
+            requiresDecision: false
+        };
+
+        try {
+            // Fetch all prerequisite rules for this module
+            const prereqRules = await dbService.getModulePrerequisites(module);
+            if (prereqRules.length === 0) {
+                return result;
+            }
+            const ruleMap = new Map<string, PrerequisiteRule>();
+            prereqRules.forEach(rule => ruleMap.set(rule.id, rule));
+            this.cachedRuleMap = ruleMap;
+
+            // Find all depth 1 rules (root level prerequisites) and process to collect course boxes
+            const rootRules = prereqRules.filter(rule => rule.depth === 1);
+            const allPrereqBoxes: CourseBox[] = [];
+            const decisionOptions: DecisionOption[] = [];
+            for (const rootRule of rootRules) {
+                const processed = await this.processPrerequisiteRule(
+                    rootRule, 
+                    ruleMap, 
+                    1
+                );
+                if (processed.requiresDecision && processed.decisionOptions) {
+                    // Complex OR requires user decision
+                    decisionOptions.push(...processed.decisionOptions);
+                    result.requiresDecision = true;
+                } else {
+                    // Direct course boxes to add
+                    allPrereqBoxes.push(...processed.boxes);
+                }
+            }
+
+            // Store prerequisite boxes for optimizer to render
+            if (allPrereqBoxes.length > 0) {
+                await this.storePrerequisiteBoxes(module, allPrereqBoxes);
+                // Just inform that prerequisites exist
+                result.warnings.push(`${module} has prerequisites that will be added automatically`);
+            }
+
+            // Handle decision requirements
+            if (decisionOptions.length > 0) {
+                result.requiresDecision = true;
+                await this.storePrerequisiteDecisions(module, decisionOptions);
+            }
+
+        } catch (error) {
+            console.error(`Error checking prerequisites for ${module}:`, error);
+            result.warnings.push(`Could not verify prerequisites for ${module}`);
+        }
+
+        return result;
+    }
+
+    /**
+     * Process a single prerequisite rule and convert to CourseBox structures
+     */
+    private async processPrerequisiteRule(
+        rule: PrerequisiteRule,
+        ruleMap: Map<string, PrerequisiteRule>,
+        depth: number
+    ): Promise<{ 
+        boxes: CourseBox[]; 
+        requiresDecision: boolean; 
+        decisionOptions?: DecisionOption[] 
+    }> {
+        switch (rule.rule_type) {
+            case 'simple':
+                // 'simple' -> ExactBox
+                if (rule.required_modules && rule.required_modules.length > 0) {
+                    const moduleCode = rule.required_modules[0] as ModuleCode;
+                    return {
+                        boxes: [{
+                            kind: 'exact',
+                            boxKey: `prereq-${rule.id}-${moduleCode}`,
+                            pathId: `prereq-${rule.id}`,
+                            programmeId: 'prereq', // Special programme ID for prerequisites
+                            moduleCode,
+                            isPreselected: false,
+                            isReadonly: true,
+                            isPrerequisite: true,
+                            parentModule: rule.module_code as ModuleCode
+                        }],
+                        requiresDecision: false
+                    };
+                }
+                break;
+
+            case 'simple_and':
+                // 'simple_and' -> multiple ExactBoxes
+                if (rule.required_modules) {
+                    const boxes: CourseBox[] = rule.required_modules.map(mod => ({
+                        kind: 'exact' as const,
+                        boxKey: `prereq-${rule.id}-${mod}`,
+                        pathId: `prereq-${rule.id}`,
+                        programmeId: 'prereq',
+                        moduleCode: mod as ModuleCode,
+                        isPreselected: false,
+                        isReadonly: true,
+                        isPrerequisite: true,
+                        parentModule: rule.module_code as ModuleCode
+                    }));
+                    return { boxes, requiresDecision: false };
+                }
+                break;
+
+            case 'simple_or':
+                // 'simple_or' -> DropdownBox
+                if (rule.required_modules && rule.required_modules.length > 0) {
+                    return {
+                        boxes: [{
+                            kind: 'dropdown',
+                            boxKey: `prereq-${rule.id}-dropdown`,
+                            pathId: `prereq-${rule.id}`,
+                            programmeId: 'prereq',
+                            moduleOptions: rule.required_modules.map(m => m as ModuleCode),
+                            isReadonly: true,
+                            isPrerequisite: true,
+                            parentModule: rule.module_code as ModuleCode
+                        }],
+                        requiresDecision: false
+                    };
+                }
+                break;
+
+            case 'n_of':
+                // 'n_of' -> n DropdownBoxes
+                if (rule.required_modules && rule.quantity_required) {
+                    const boxes: CourseBox[] = [];
+                    for (let i = 0; i < rule.quantity_required; i++) {
+                        boxes.push({
+                            kind: 'dropdown',
+                            boxKey: `prereq-${rule.id}-dropdown-${i}`,
+                            pathId: `prereq-${rule.id}`,
+                            programmeId: 'prereq',
+                            moduleOptions: rule.required_modules.map(m => m as ModuleCode),
+                            isReadonly: true,
+                            isPrerequisite: true,
+                            parentModule: rule.module_code as ModuleCode
+                        });
+                    }
+                    return { boxes, requiresDecision: false };
+                }
+                break;
+
+            case 'complex_and':
+                // 'complex_and' -> All children must be fulfilled
+                if (rule.children) {
+                    const allChildBoxes: CourseBox[] = [];
+                    const childDecisions: DecisionOption[] = [];
+                    
+                    for (const childId of rule.children) {
+                        const childRule = ruleMap.get(childId);
+                        if (!childRule) continue;
+                        
+                        const childResult = await this.processPrerequisiteRule(
+                            childRule, 
+                            ruleMap, 
+                            depth + 1
+                        );
+                        
+                        if (childResult.requiresDecision && childResult.decisionOptions) {
+                            // complex_or child requires decision
+                            childDecisions.push(...childResult.decisionOptions);
+                        } else {
+                            // Add child boxes directly
+                            allChildBoxes.push(...childResult.boxes);
+                        }
+                    }
+                    
+                    // If any child requires decision, bubble it up
+                    if (childDecisions.length > 0) {
+                        return {
+                            boxes: allChildBoxes,
+                            requiresDecision: true,
+                            decisionOptions: childDecisions
+                        };
+                    }
+                    
+                    return { boxes: allChildBoxes, requiresDecision: false };
+                }
+                break;
+
+            case 'complex_or':
+                // 'complex_or' -> Decision required
+                if (rule.children) {
+                    const options: DecisionOption[] = [];
+                    
+                    for (const childId of rule.children) {
+                        const childRule = ruleMap.get(childId);
+                        if (!childRule) continue;
+                        
+                        const childResult = await this.processPrerequisiteRule(
+                            childRule, 
+                            ruleMap, 
+                            depth + 1
+                        );
+                        
+                        // Create decision option for this path
+                        options.push({
+                            id: childRule.id,
+                            label: `${childRule.module_code as string} Prerequisite Option`,
+                            description: childRule.original_text || 'Complete this prerequisite path',
+                            prereqModules: childResult.boxes,
+                            depth: depth + 1
+                        });
+                    }
+                    
+                    return {
+                        boxes: [], // No direct boxes, requires decision
+                        requiresDecision: true,
+                        decisionOptions: options
+                    };
+                }
+                break;
+        }
+        // Fallback
+        return { boxes: [], requiresDecision: false };
+    }
+
+    /**
+     * Store prerequisite boxes for the optimizer to render
+     */
+    private async storePrerequisiteBoxes(
+        module: ModuleCode, 
+        boxes: CourseBox[]
+    ): Promise<void> {
+        if (!this.prerequisiteBoxes) {
+            this.prerequisiteBoxes = new Map();
+        }
+        this.prerequisiteBoxes.set(module, boxes);
+    }
+
+    /**
+     * Store prerequisite decisions for UI presentation
+     */
+    private async storePrerequisiteDecisions(
+        module: ModuleCode,
+        options: DecisionOption[]
+    ): Promise<void> {
+        if (!this.prerequisiteDecisions) {
+            this.prerequisiteDecisions = new Map();
+        }
+        this.prerequisiteDecisions.set(module, {
+            module,
+            boxKey: '', // Set by calling context
+            type: 'PREREQUISITE_CHOICE',
+            options,
+            maxSelections: 1,
+            title: `Choose prerequisite path for ${module}`,
+            message: 'This module has multiple prerequisite options. Please select one:'
+        } as PendingDecision);
+    }
+
+    /**
+     * Apply prerequisite decision
+     */
+    async applyPrerequisiteDecision(
+        module: ModuleCode, 
+        selectedOptionId: string
+    ): Promise<CourseBox[]> {
+        const decision = this.prerequisiteDecisions?.get(module);
+        if (!decision) return [];
+        
+        const selectedOption = decision.options.find(opt => opt.id === selectedOptionId);
+        if (!selectedOption) return [];
+        
+        // Re-process the selected rule to get its boxes
+        const selectedRule = this.getCachedRule(selectedOptionId);
+        if (!selectedRule) return [];
+        
+        const processed = await this.processPrerequisiteRule(
+            selectedRule,
+            this.getCachedRuleMap(),
+            selectedRule.depth
+        );
+        
+        // Store the resolved boxes
+        await this.storePrerequisiteBoxes(module, processed.boxes);
+        
+        // Clear the decision
+        this.prerequisiteDecisions?.delete(module);
+        
+        return processed.boxes;
+    }
+
+    /**
+     * Mark prerequisite as fulfilled when selected
+     */
+    async markPrerequisiteFulfilled(boxKey: string, selectedModule?: ModuleCode): Promise<void> {
+        if (!this.prerequisiteFulfillment) {
+            this.prerequisiteFulfillment = new Map();
+        }
+        this.prerequisiteFulfillment.set(boxKey, {
+            fulfilled: true,
+            selectedModule
+        });
+    }
+
+    isPrerequisiteFulfilled(boxKey: string): boolean {
+        return this.prerequisiteFulfillment?.get(boxKey)?.fulfilled || false;
+    }
+
+    /**
+     * Get prerequisite boxes for a module
+     */
+    getPrerequisiteBoxes(module: ModuleCode): CourseBox[] | undefined {
+        return this.prerequisiteBoxes?.get(module);
+    }
+
+    /**
+     * Get prerequisite decisions
+     */
+    getPrerequisiteDecisions(module: ModuleCode): PendingDecision | undefined {
+        return this.prerequisiteDecisions?.get(module);
+    }
+
+    /**
+     * Max Rule Stripping Logic
      * 
      * Rule: If a LEAF requirement path has a max cap, once that cap is reached,
      * all associated modules will have their tags dulled only in that path's context.
@@ -98,31 +437,35 @@ export class RealtimeValidator {
             requiresDecision: false
         };
 
-        const maxRuleIds = this.lookupMaps.moduleToMaxRules[module] || [];
-        const moduleAU = await this.getModuleAU(module);
+        try {
+            const maxRuleIds = this.lookupMaps.moduleToMaxRules[module] || [];
+            const moduleAU = await dbService.getModuleAU(module);
 
-        for (const maxRuleId of maxRuleIds) {
-            const currentFulfilled = this.validationState.maxRuleFulfillment.get(maxRuleId) || 0;
-            const maxRule = this.getMaxRule(maxRuleId);
+            for (const maxRuleId of maxRuleIds) {
+                const currentFulfilled = this.validationState.maxRuleFulfillment.get(maxRuleId) || 0;
+                const maxRule = await dbService.getRequirementPathById(maxRuleId) as RequirementPathData;
+                if (!maxRule) throw new Error(`Max rule ${maxRuleId} not found`);
 
-            if (!maxRule) continue;
+                // Check if adding this module would exceed the cap
+                if (maxRule && typeof maxRule.rule_value === 'number'
+                        && currentFulfilled + moduleAU > maxRule.rule_value
+                ) {
+                    // Cap reached - strip tags for this path context
+                    this.stripTagForPath(module, maxRuleId);
 
-            // Check if adding this module would exceed the cap
-            if (currentFulfilled + moduleAU > maxRule.maxUnits) {
-                // Cap reached - strip tags for this path context
-                const pathKey = this.extractPathKeyFromMaxRule(maxRuleId);
-                this.stripTagForPath(module, pathKey);
+                    const affectedModules = this.getModulesForMaxRule(maxRuleId);
+                    affectedModules.forEach(affectedModule => {
+                        this.stripTagForPath(affectedModule, maxRuleId);
+                    });
 
-                // Strip tags for all other modules in this max rule
-                const affectedModules = this.getModulesForMaxRule(maxRuleId);
-                affectedModules.forEach(affectedModule => {
-                    this.stripTagForPath(affectedModule, pathKey);
-                });
-
-                result.warnings.push(
-                    `Module will not count toward ${maxRule.displayLabel} (${maxRule.maxUnits} AU cap reached)`
-                );
+                    result.warnings.push(
+                        `${maxRule.display_label} (${maxRule.rule_value} units cap reached)`
+                    );
+                }
             }
+        } catch (error) {
+            console.error(`Error checking max rules for ${module}:`, error);
+            result.errors.push(`Could not verify max rule for ${module}`);
         }
 
         return result;
@@ -131,15 +474,15 @@ export class RealtimeValidator {
     /**
      * Strip tag for a specific path context
      */
-    private stripTagForPath(module: ModuleCode, pathKey: string): void {
+    private stripTagForPath(module: ModuleCode, pathId: string): void {
         if (!this.validationState.strippedTags.has(module)) {
             this.validationState.strippedTags.set(module, new Set());
         }
-        this.validationState.strippedTags.get(module)!.add(pathKey);
+        this.validationState.strippedTags.get(module)!.add(pathId);
     }
 
     /**
-     * 2. Double Count Tracking Logic
+     * Double Count Tracking Logic
      * 
      * Rule: Each programme has a defined doubleCountCap. Once reached, no more modules
      * can double-count into that programme, though they may still count elsewhere.
@@ -157,7 +500,7 @@ export class RealtimeValidator {
             return result;
         }
 
-        const moduleAU = await this.getModuleAU(module);
+        const moduleAU = await dbService.getModuleAU(module);
         const eligibleProgrammes = doubleCountInfo.eligibleProgrammes;
         const availableProgrammes: string[] = [];
 
@@ -171,7 +514,7 @@ export class RealtimeValidator {
             }
         }
 
-        // Check for intra-programme double count (CommonCore only)
+        // Check for intra-programme double count (commonCore only)
         const hasIntraProgrammeEligibility = doubleCountInfo.intraProgrammeEligible;
         if (hasIntraProgrammeEligibility) {
             const targetGroupType = this.getGroupTypeFromBoxKey(boxKey);
@@ -201,18 +544,16 @@ export class RealtimeValidator {
     }
 
     /**
-     * 3. Triple Count Violation Logic
+     * Triple Count Violation Logic
      * 
      * Rule: A module may fulfill at most 2 requirements, including both
      * intra- and inter-programme rules.
      */
     private async checkTripleCountViolation(module: ModuleCode): Promise<ValidationResult> {
         const currentUsage = this.validationState.moduleUsageCount.get(module) || 0;
-
         if (currentUsage >= 2) {
             // Record as violating module
             this.validationState.violatingModules.add(module);
-
             return {
                 isValid: false,
                 errors: [`${module} is already used in 2 requirements (maximum allowed)`],
@@ -242,7 +583,7 @@ export class RealtimeValidator {
     }
 
     private async addModuleToValidationState(module: ModuleCode, boxKey: string): Promise<void> {
-        const moduleAU = await this.getModuleAU(module);
+        const moduleAU = await dbService.getModuleAU(module);
 
         // Update usage count
         const currentUsage = this.validationState.moduleUsageCount.get(module) || 0;
@@ -275,54 +616,58 @@ export class RealtimeValidator {
 
 
     private async removeModuleFromValidationState(module: ModuleCode, boxKey: string): Promise<void> {
-        const moduleAU = await this.getModuleAU(module);
+        try {
+            const moduleAU = await dbService.getModuleAU(module);
 
-        // Update usage count
-        const currentUsage = this.validationState.moduleUsageCount.get(module) || 0;
-        const newUsage = Math.max(0, currentUsage - 1);
-        this.validationState.moduleUsageCount.set(module, newUsage);
+            // Update usage count
+            const currentUsage = this.validationState.moduleUsageCount.get(module) || 0;
+            const newUsage = Math.max(0, currentUsage - 1);
+            this.validationState.moduleUsageCount.set(module, newUsage);
 
-        // Remove from violating modules if no longer violating
-        if (newUsage < 2) {
-            this.validationState.violatingModules.delete(module);
-        }
-
-        // Update max rule fulfillment
-        const maxRuleIds = this.lookupMaps.moduleToMaxRules[module] || [];
-        for (const maxRuleId of maxRuleIds) {
-            const currentFulfilled = this.validationState.maxRuleFulfillment.get(maxRuleId) || 0;
-            const newFulfilled = Math.max(0, currentFulfilled - moduleAU);
-            this.validationState.maxRuleFulfillment.set(maxRuleId, newFulfilled);
-
-            // Restore tags if max rule is no longer exceeded
-            const maxRule = this.getMaxRule(maxRuleId);
-            if (maxRule && newFulfilled <= maxRule.maxUnits) {
-                const pathKey = this.extractPathKeyFromMaxRule(maxRuleId);
-                this.restoreTagForPath(module, pathKey);
+            // Remove from violating modules if no longer violating
+            if (newUsage < 2) {
+                this.validationState.violatingModules.delete(module);
             }
-        }
 
-        const boxSet = this.validationState.moduleToBoxMapping.get(module);
-        if (boxSet) {
-            boxSet.delete(boxKey);
-            if (boxSet.size === 0) {
-                this.validationState.moduleToBoxMapping.delete(module);
-                // Optionally also remove from selectedModules if not selected elsewhere:
-                // this.validationState.selectedModules.delete(module);
-            } else {
-                this.validationState.moduleToBoxMapping.set(module, boxSet);
+            // Update max rule fulfillment
+            const maxRuleIds = this.lookupMaps.moduleToMaxRules[module] || [];
+            for (const maxRuleId of maxRuleIds) {
+                const currentFulfilled = this.validationState.maxRuleFulfillment.get(maxRuleId) || 0;
+                const newFulfilled = Math.max(0, currentFulfilled - moduleAU);
+                this.validationState.maxRuleFulfillment.set(maxRuleId, newFulfilled);
+
+                // Restore tags if max rule is no longer exceeded
+                const maxRule = await dbService.getRequirementPathById(maxRuleId);
+                if (maxRule && typeof maxRule.rule_value === 'number' && newFulfilled <= maxRule.rule_value) {
+                    this.restoreTagForPath(module, maxRuleId);
+                } else {
+                    throw new Error(`Max rule ${maxRuleId} not found or invalid`);
+                }
             }
+
+            const boxSet = this.validationState.moduleToBoxMapping.get(module);
+            if (boxSet) {
+                boxSet.delete(boxKey);
+                if (boxSet.size === 0) {
+                    this.validationState.moduleToBoxMapping.delete(module);
+                    // Optionally also remove from selectedModules if not selected elsewhere:
+                    // this.validationState.selectedModules.delete(module);
+                } else {
+                    this.validationState.moduleToBoxMapping.set(module, boxSet);
+                }
+            }
+        } catch (error) {
+            console.error(`Error removing module ${module} from validation state:`, error);
         }
     }
-
 
     /**
      * Restore tag for a specific path context
      */
-    private restoreTagForPath(module: ModuleCode, pathKey: string): void {
+    private restoreTagForPath(module: ModuleCode, pathId: string): void {
         const strippedTags = this.validationState.strippedTags.get(module);
         if (strippedTags) {
-            strippedTags.delete(pathKey);
+            strippedTags.delete(pathId);
             if (strippedTags.size === 0) {
                 this.validationState.strippedTags.delete(module);
             }
@@ -335,55 +680,32 @@ export class RealtimeValidator {
     async applyDoubleCountDecision(module: ModuleCode, selectedProgrammes: string[]): Promise<void> {
         this.validationState.doubleCountModules.set(module, selectedProgrammes);
 
-        const moduleAU = await this.getModuleAU(module);
+        const moduleAU = await dbService.getModuleAU(module);
         for (const programmeId of selectedProgrammes) {
             const currentUsage = this.validationState.doubleCountUsage.get(programmeId) || 0;
             this.validationState.doubleCountUsage.set(programmeId, currentUsage + moduleAU);
         }
     }
 
-    // Helper methods with database integration
+    // HELPERS
 
     /**
-     * Get module AU with caching and database fallback
+     * Get cached prerequisite rule map
      */
-    private async getModuleAU(module: ModuleCode): Promise<number> {
-        // Check local cache first
-        if (this.moduleAUCache.has(module)) {
-            return this.moduleAUCache.get(module)!;
-        }
-
-        // Fallback to database
-        try {
-            const au = await dbService.getModuleAU(module);
-            this.moduleAUCache.set(module, au);
-            return au;
-        } catch (error) {
-            console.error(`Error fetching AU for ${module}:`, error);
-            // Final fallback to 4 AU
-            this.moduleAUCache.set(module, 4);
-            return 4;
-        }
+    private getCachedRuleMap(): Map<string, PrerequisiteRule> {
+        return this.cachedRuleMap || new Map();
     }
 
-    private getMaxRule(maxRuleId: string): any {
-        // Implementation would fetch max rule details from lookup maps
-        // For now, return mock data - this should be enhanced with actual lookup map data
-        return {
-            maxUnits: 12,
-            displayLabel: 'Level 3000+',
-            pathKey: maxRuleId.replace(/_max.*/, '')
-        };
-    }
-
-    private extractPathKeyFromMaxRule(maxRuleId: string): string {
-        return maxRuleId.replace(/_max.*/, '');
+    /**
+     * Get cached prerequisite rule by ID
+     */
+    private getCachedRule(ruleId: string): PrerequisiteRule | undefined {
+        return this.cachedRuleMap?.get(ruleId);
     }
 
     private getModulesForMaxRule(maxRuleId: string): ModuleCode[] {
         // Return all modules that are affected by this max rule
-        const pathKey = this.extractPathKeyFromMaxRule(maxRuleId);
-        const leafModules = this.lookupMaps.leafPathToModules[pathKey] || [];
+        const leafModules = this.lookupMaps.leafPathToModules[maxRuleId] || [];
         return leafModules;
     }
 
@@ -418,16 +740,14 @@ export class RealtimeValidator {
     }
 
     /**
-     * Get validation state cache statistics for debugging
+     * For debugging
      */
     getValidationStats(): {
-        cachedModuleAUs: number;
         selectedModules: number;
         violatingModules: number;
         maxRulesFulfilled: number;
     } {
         return {
-            cachedModuleAUs: this.moduleAUCache.size,
             selectedModules: this.validationState.selectedModules.size,
             violatingModules: this.validationState.violatingModules.size,
             maxRulesFulfilled: this.validationState.maxRuleFulfillment.size

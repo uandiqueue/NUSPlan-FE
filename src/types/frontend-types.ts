@@ -1,5 +1,5 @@
 import type { ModuleCode } from '../types/nusmods-types';
-import type { ProgrammePayload, LookupMaps } from './shared-types';
+import type { CourseBox } from './shared-types';
 
 // PROGRAMME SELECTION INTERFACES
 
@@ -110,7 +110,7 @@ export interface PreclusionData {
 export interface ValidationState {
     // Max rule tracking
     maxRuleFulfillment: Map<string, number>; // maxRuleId -> fulfilled AU
-    strippedTags: Map<ModuleCode, Set<string>>; // module -> stripped pathKeys
+    strippedTags: Map<ModuleCode, Set<string>>; // module -> stripped pathIds
     
     // Double count tracking
     doubleCountUsage: Map<string, number>; // programmeId -> used AU
@@ -122,7 +122,7 @@ export interface ValidationState {
     
     // General tracking
     selectedModules: Set<ModuleCode>;
-    moduleToBoxMapping: Map<ModuleCode, Set<string>>;
+    moduleToBoxMapping: Map<ModuleCode, Set<string>>; // moduleCode -> boxKeys where this module is used
 }
 
 export interface ValidationResult {
@@ -157,7 +157,7 @@ export interface DecisionOption {
     currentUsage?: number; // For double-count decisions
     maxCapacity?: number; // For double-count decisions
     utilizationRate?: number; // For double-count decisions
-    prereqModules?: ModuleCode[]; // For prerequisite decisions
+    prereqModules?: CourseBox[]; // For prerequisite decisions
     depth?: number; // For nested prerequisite tracking
 }
 

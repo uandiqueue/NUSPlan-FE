@@ -24,7 +24,6 @@ export interface ProgrammePayload {
     };
     sections: ProgrammeSection[];
     preselectedModules: ModuleCode[];
-    lookupMaps: LookupMaps; // Flat maps for FE validation
 }
 
 export interface ProgrammeSection {
@@ -62,6 +61,9 @@ export interface ExactBox {
     programmeId: string;
     moduleCode: ModuleCode;
     isPreselected: boolean;
+    isReadonly?: boolean; // For prerequisites
+    isPrerequisite?: boolean; // For prerequisites
+    parentModule?: ModuleCode; // For prerequisites
 }
 
 export interface DropdownBox {
@@ -70,6 +72,9 @@ export interface DropdownBox {
     pathId: string;
     programmeId: string;
     moduleOptions: ModuleCode[];
+    isReadonly?: boolean; // For prerequisites
+    isPrerequisite?: boolean; // For prerequisites
+    parentModule?: ModuleCode; // For prerequisites
 }
 
 export interface AltPathBox {
@@ -78,6 +83,9 @@ export interface AltPathBox {
     pathId: string;
     programmeId: string;
     pathAlternatives: CourseBox[]; // List of direct children path IDs
+    isReadonly?: boolean; // For prerequisites
+    isPrerequisite?: boolean; // For prerequisites
+    parentModule?: ModuleCode; // For prerequisites
 }
 
 // VALIDATION LOOKUP MAPS (For FE real-time validation)
@@ -89,10 +97,10 @@ export interface AltPathBox {
 export interface LookupMaps {
     // Combination-specific requirement mappings
     moduleToLeafPaths: Record<ModuleCode, LeafPathMapping[]>;
-    leafPathToModules: Record<string, ModuleCode[]>;
+    leafPathToModules: Record<string, ModuleCode[]>; // pathId -> moduleCodes
     
     // Combination-specific max rule tracking
-    moduleToMaxRules: Record<ModuleCode, string[]>; // moduleCode -> pathKeys
+    moduleToMaxRules: Record<ModuleCode, string[]>; // moduleCode -> pathIds
     
     // Complex combination-specific analysis
     doubleCountEligibility: Record<ModuleCode, DoubleCountInfo>;
@@ -102,7 +110,7 @@ export interface LookupMaps {
 }
 
 export interface LeafPathMapping {
-    pathKey: string;
+    pathId: string;
     programmeId: string;
     displayLabel: string;
     groupType: RequirementGroupType;

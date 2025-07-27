@@ -16,6 +16,7 @@ import { normalisePayload } from "../services/validator/normalise";
 import { exportJson } from "../services/tester";
 import { supabase } from "../config/supabase";
 import { beError, beErrorHandler } from "../services/errorHandler/be-error";
+import { FEDatabaseQueryService } from "../services/dbQuery";
 import {
   BackendResponse,
   ProgrammePayload,
@@ -50,6 +51,7 @@ export default function SelectProgrammesPage() {
   } = useUIStore();
 
   const { loadProgrammes } = usePlannerStore();
+  const dbService = FEDatabaseQueryService.getInstance();
 
   /* LOCAL STATE */
   const [loaded, setLoaded] = useState(false);
@@ -87,6 +89,9 @@ export default function SelectProgrammesPage() {
     // Build request body
     const programmeIds = selectedIds;
 
+    // Initialize local cache (Phase 1 without lookup)
+    await dbService.initializeCache(programmeIds);
+
     // Fetch backend
     try {
       setLoading(true);
@@ -107,6 +112,12 @@ export default function SelectProgrammesPage() {
       // Load global planner store
       loadProgrammes(programmes, res.data.lookup);
       setLoaded(true);
+
+      // Finish caching (Phase 2 with lookup)
+      dbService
+        .initializeCache(programmeIds, res.data.lookup)
+        .catch((error) => console.error('Cache phase 2 failed', error));
+
     } catch (err: any) {
       console.error(err);
       const errorMessage = beErrorHandler.getErrorMessage(err as beError);
