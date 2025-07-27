@@ -394,55 +394,6 @@ export class Optimizer {
   }
 
   /**
-   * Get enhanced module information for tooltips and detailed views
-   */
-  async getModuleInfo(module: ModuleCode): Promise<{
-    moduleCode: ModuleCode;
-    title: string;
-    au: number;
-    description?: string;
-    department?: string;
-    faculty?: string;
-    prerequisites: ModuleCode[];
-    preclusions: ModuleCode[];
-  } | null> {
-    try {
-      // Use the new API methods
-      const [moduleDetails, prereqRules, preclusionData] = await Promise.all([
-        dbService.getModulesDetails([module]),
-        dbService.getModulePrerequisites(module),
-        dbService.getBatchPreclusions([module])
-      ]);
-
-      const moduleInfo = moduleDetails[0];
-      if (!moduleInfo) return null;
-
-      // Extract all required modules from the prerequisite rules
-      const prereqs = prereqRules
-        .flatMap(rule => Array.isArray(rule.required_modules) ? rule.required_modules : [])
-        .filter((v, i, arr) => v && arr.indexOf(v) === i);
-
-      // Old preclusion logic is still fine, but map the new field
-      const preclusions = preclusionData.find(p => p.module_code === module)?.precluded_modules || [];
-
-      return {
-        moduleCode: module,
-        title: moduleInfo.title,
-        au: Number(moduleInfo.module_credit),
-        description: moduleInfo.description,
-        department: moduleInfo.department,
-        faculty: moduleInfo.faculty,
-        prerequisites: prereqs,
-        preclusions: preclusions
-      };
-    } catch (error) {
-      console.error(`Error fetching detailed info for ${module}:`, error);
-      return null;
-    }
-  }
-
-
-  /**
    * Clear optimizer caches (useful when switching between academic plans)
    */
   clearCaches(): void {

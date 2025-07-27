@@ -1,4 +1,4 @@
-import type { LookupMaps, CourseBox } from '../types/shared-types';
+import type { ProgrammePayload, LookupMaps, CourseBox } from '../types/shared-types';
 import type { ModuleCode } from '../types/nusmods-types';
 import type { 
     ValidationState, 
@@ -21,7 +21,11 @@ export class RealtimeValidator {
     private prerequisiteFulfillment?: Map<string, { fulfilled: boolean; selectedModule?: ModuleCode }>;
     private cachedRuleMap?: Map<string, PrerequisiteRule>;
 
-    constructor(validationState: ValidationState, lookupMaps: LookupMaps, programmes: any[]) {
+    constructor(
+        validationState: ValidationState, 
+        lookupMaps: LookupMaps, 
+        programmes: ProgrammePayload[]
+    ) {
         this.validationState = validationState;
         this.lookupMaps = lookupMaps;
         this.programmes = programmes;
