@@ -1,16 +1,17 @@
 import { create } from 'zustand';
 import type { ModuleCode } from '../types/nusmods-types';
-import type { ProgrammePayload, LookupMaps } from '../types/shared-types';
+import type { ProgrammePayload, LookupMaps, CourseBox } from '../types/shared-types';
 import type {
   ValidationState,
   ValidationResult,
   ProgressState,
-  PendingDecision
+  PendingDecision,
+  ModuleTag
 } from '../types/frontend-types';
 import { RealtimeValidator } from '../services/feRealtimeValidator';
 import { Optimizer } from '../services/feOptimizer';
 import { FulfilmentTracker } from '../services/feFulfilmentTracker';
-import { dbService, FEDatabaseQueryService } from '../services/dbQuery';
+import { dbService } from '../services/dbQuery';
 
 export interface PlannerState {
   // Core data
@@ -24,8 +25,11 @@ export interface PlannerState {
   progressState: ProgressState;
   pendingDecision: PendingDecision | null;
   
+  // Add prerequisite tracking
+  prerequisiteBoxes: Map<ModuleCode, CourseBox[]>;
+  moduleTagsCache: Map<ModuleCode, ModuleTag[]>;
+  
   // Service instances
-  dbService: FEDatabaseQueryService | null;
   validator: RealtimeValidator | null;
   optimizer: Optimizer | null;
   tracker: FulfilmentTracker | null;
@@ -40,12 +44,13 @@ export interface PlannerState {
   switchProgramme: (index: number) => void;
   selectModule: (module: ModuleCode, boxKey: string) => Promise<ValidationResult>;
   removeModule: (module: ModuleCode, boxKey: string) => Promise<void>;
-  resolveDecision: (selectedProgrammes: string[]) => Promise<void>;
+  resolveDecision: (selectedOptions: string[]) => Promise<void>;
   cancelDecision: () => void;
   
-  // Getters through services
+  // Services for UI
   getModuleInfo: (module: ModuleCode) => Promise<any>;
-  getPathDetails: (pathId: string) => Promise<any>;
+  getModuleTags: (module: ModuleCode) => Promise<ModuleTag[]>;
+  getPrerequisiteBoxes: (module: ModuleCode) => CourseBox[];
   getFilteredOptions: (boxOptions: ModuleCode[]) => Promise<any[]>;
   getProgressSummary: (programmeId: string) => Promise<any>;
   getRequirementTree: (programmeId: string) => Promise<any[]>;
@@ -87,7 +92,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
   
   pendingDecision: null,
-  dbService: null,
+  
+  // Initialize service integration state
+  prerequisiteBoxes: new Map(),
+  moduleTagsCache: new Map(),
+  
   validator: null,
   optimizer: null,
   tracker: null,
@@ -128,13 +137,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       };
 
       // Initialize services
-      const dbService = FEDatabaseQueryService.getInstance();
       const validator = new RealtimeValidator(validationState, lookupMaps, programmes);
       const optimizer = new Optimizer(validator, lookupMaps, programmes);
       const tracker = new FulfilmentTracker(progressState, validator, lookupMaps, programmes);
-
-      // Get database status
-      const cacheStats = dbService.getCacheStats();
       
       set({
         programmes,
@@ -146,6 +151,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         optimizer,
         tracker,
         selectedProgramIndex: 0,
+        prerequisiteBoxes: new Map(),
+        moduleTagsCache: new Map(),
         isLoading: false,
       });
       
@@ -197,11 +204,12 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
           // Check for prerequisite decision
           const prereqDecision = validator.getPrerequisiteDecisions(module);
           if (prereqDecision) {
+              prereqDecision.boxKey = boxKey; // Set the boxKey
               set({
                   pendingDecision: prereqDecision,
                   isLoading: false
               });
-              return validationResult;
+              return { ...validationResult, requiresDecision: true };
           }
 
           // Check if double-count decision is required
@@ -216,17 +224,34 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
               }
           }
 
-          // Update
+          // Handle prerequisite boxes
+          const prereqBoxes = validator.getPrerequisiteBoxes(module);
+          if (prereqBoxes && prereqBoxes.length > 0) {
+              console.log(`Auto-adding ${prereqBoxes.length} prerequisite(s) for ${module}`);
+              
+              // Store prerequisite boxes
+              set(state => ({
+                  prerequisiteBoxes: new Map(state.prerequisiteBoxes).set(module, prereqBoxes)
+              }));
+
+              // Add prerequisites to tracking
+              for (const prereqBox of prereqBoxes) {
+                  if (prereqBox.kind === 'exact' && prereqBox.moduleCode) {
+                      await validator.updateValidationState(prereqBox.moduleCode, prereqBox.boxKey, 'ADD');
+                      await tracker.updateProgress(prereqBox.moduleCode, 'ADD');
+                  }
+              }
+          }
+
+          // Update validation state and progress for main module
           await validator.updateValidationState(module, boxKey, 'ADD');
           await tracker.updateProgress(module, 'ADD');
 
-          // Handle prerequisite boxes rendering
-          const prereqBoxes = validator.getPrerequisiteBoxes(module);
-          if (prereqBoxes && prereqBoxes.length > 0) {
-              // Store prerequisite boxes for UI rendering
-              // PENDING
-              console.log(`Module ${module} has ${prereqBoxes.length} prerequisite(s) to render`);
-          }
+          // Generate and cache module tags
+          const tags = await optimizer.generateModuleTags(module);
+          set(state => ({
+              moduleTagsCache: new Map(state.moduleTagsCache).set(module, tags)
+          }));
 
           // Update UI state
           set(state => ({
@@ -257,7 +282,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   /**
-   * Remove a module with database-integrated cleanup
+   * Handle module removal with prerequisites
    */
   removeModule: async (module, boxKey) => {
     const { validator, tracker } = get();
@@ -267,11 +292,32 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({ isLoading: true });
     
     try {
-      // Update validation state
+      // Remove prerequisite boxes first
+      const prereqBoxes = get().prerequisiteBoxes.get(module);
+      if (prereqBoxes) {
+        for (const prereqBox of prereqBoxes) {
+          if (prereqBox.kind === 'exact' && prereqBox.moduleCode) {
+            await validator.updateValidationState(prereqBox.moduleCode, prereqBox.boxKey, 'REMOVE');
+            await tracker.updateProgress(prereqBox.moduleCode, 'REMOVE');
+          }
+        }
+        
+        // Clear prerequisite boxes
+        const newPrereqBoxes = new Map(get().prerequisiteBoxes);
+        newPrereqBoxes.delete(module);
+        set({ prerequisiteBoxes: newPrereqBoxes });
+      }
+      
+      // Update validation state for main module
       await validator.updateValidationState(module, boxKey, 'REMOVE');
       
-      // Update progress tracking
+      // Update progress tracking for main module
       await tracker.updateProgress(module, 'REMOVE');
+      
+      // Clear cached tags
+      const newTagsCache = new Map(get().moduleTagsCache);
+      newTagsCache.delete(module);
+      set({ moduleTagsCache: newTagsCache });
       
       // Update UI state
       set(state => ({
@@ -291,41 +337,55 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   /**
-   * Resolve a pending decision
+   * //Resolve decisions and update services
    */
   resolveDecision: async (selectedOptions) => {
-      const { pendingDecision, validator, tracker } = get();
+      const { pendingDecision, validator, tracker, optimizer } = get();
 
-      if (!pendingDecision || !validator || !tracker) return;
+      if (!pendingDecision || !validator || !tracker || !optimizer) return;
 
       set({ isLoading: true });
 
       try {
-          // Check if this is a prerequisite decision
           if (pendingDecision.type === 'PREREQUISITE_CHOICE' && selectedOptions.length === 1) {
               const resolvedBoxes = await validator.applyPrerequisiteDecision(
                   pendingDecision.module,
                   selectedOptions[0]
               );
 
-              // Handle resolved prerequisite boxes
-              // PENDING
-              console.log(`Resolved ${resolvedBoxes.length} prerequisite boxes for ${pendingDecision.module}`);
+              // Store and process resolved prerequisite boxes
+              if (resolvedBoxes.length > 0) {
+                  set(state => ({
+                      prerequisiteBoxes: new Map(state.prerequisiteBoxes).set(pendingDecision.module, resolvedBoxes)
+                  }));
+
+                  // Add prerequisites to validation state and tracker
+                  for (const prereqBox of resolvedBoxes) {
+                      if (prereqBox.kind === 'exact' && prereqBox.moduleCode) {
+                          await validator.updateValidationState(prereqBox.moduleCode, prereqBox.boxKey, 'ADD');
+                          await tracker.updateProgress(prereqBox.moduleCode, 'ADD');
+                      }
+                  }
+              }
+
+              // Add the main module
+              await validator.updateValidationState(pendingDecision.module, pendingDecision.boxKey, 'ADD');
+              await tracker.updateProgress(pendingDecision.module, 'ADD');
               
-              // Clear pending decision
-              set({ pendingDecision: null, isLoading: false });
-              return;
+              console.log(`Resolved ${resolvedBoxes.length} prerequisite boxes for ${pendingDecision.module}`);
+          } else {
+              // Handle double-count decision
+              await validator.applyDoubleCountDecision(pendingDecision.module, selectedOptions);
+              await validator.updateValidationState(pendingDecision.module, pendingDecision.boxKey, 'ADD');
+              await tracker.updateProgress(pendingDecision.module, 'ADD');
           }
 
-          // Handle double-count decision
-          await validator.applyDoubleCountDecision(pendingDecision.module, selectedOptions);
-
-          // Update validation state
-          await validator.updateValidationState(pendingDecision.module, pendingDecision.boxKey, 'ADD');
-
-          // Update progress tracking
-          await tracker.updateProgress(pendingDecision.module, 'ADD');
-
+          // Generate tags for the newly added module
+          const tags = await optimizer.generateModuleTags(pendingDecision.module);
+          set(state => ({
+              moduleTagsCache: new Map(state.moduleTagsCache).set(pendingDecision.module, tags)
+          }));
+          
           // Clear pending decision
           set(state => ({
               validationState: { ...state.validationState },
@@ -354,9 +414,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
    * Get detailed module information
    */
   getModuleInfo: async (module) => {
-    const { optimizer } = get();
-    if (!optimizer) return null;
-    
     try {
       return await dbService.getModuleDetails(module);
     } catch (error) {
@@ -366,22 +423,41 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   /**
-   * Get detailed path information
+   * Get module tags from optimizer
    */
-  getPathDetails: async (pathId) => {
-    const { dbService } = get();
-    if (!dbService) return null;
-
+  getModuleTags: async (module) => {
+    const { optimizer, moduleTagsCache } = get();
+    
+    // Check cache first
+    const cached = moduleTagsCache.get(module);
+    if (cached) return cached;
+    
+    if (!optimizer) return [];
+    
     try {
-      return await dbService.getRequirementPathById(pathId);
+      const tags = await optimizer.generateModuleTags(module);
+      
+      // Cache the result
+      set(state => ({
+        moduleTagsCache: new Map(state.moduleTagsCache).set(module, tags)
+      }));
+      
+      return tags;
     } catch (error) {
-      console.error('Error getting path details:', error);
-      return null;
+      console.error('Error getting module tags:', error);
+      return [];
     }
   },
 
   /**
-   * Get filtered dropdown options
+   * Get prerequisite boxes
+   */
+  getPrerequisiteBoxes: (module) => {
+    return get().prerequisiteBoxes.get(module) || [];
+  },
+
+  /**
+   * Use optimizer for filtered options
    */
   getFilteredOptions: async (boxOptions) => {
     const { optimizer } = get();
@@ -396,7 +472,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   /**
-   * Get detailed progress summary for a programme
+   * Use tracker for progress summary
    */
   getProgressSummary: async (programmeId) => {
     const { tracker } = get();
@@ -411,7 +487,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   /**
-   * Get requirement tree with progress data
+   * Use tracker for requirement tree
    */
   getRequirementTree: async (programmeId) => {
     const { tracker } = get();
@@ -429,10 +505,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
    * Clear all caches
    */
   clearCaches: () => {
-    const { tracker } = get();
-
     dbService.clearCache();
-    tracker?.clearCaches();
+    set({
+      moduleTagsCache: new Map(),
+      prerequisiteBoxes: new Map()
+    });
   },
 
   /**
@@ -440,19 +517,24 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
    */
   refreshData: async () => {
     const { programmes, lookupMaps } = get();
-
-    // Clear caches first
     get().clearCaches();
-    
-    // Reload programmes
     await get().loadProgrammes(programmes, lookupMaps);
   },
 
   /**
-   * Get stats for debugging
+   * //CHANGE: Comprehensive system stats using all services
    */
   getSystemStats: () => {
-    const { validator, optimizer, tracker, programmes, validationState, progressState } = get();
+    const { 
+      validator, 
+      optimizer, 
+      tracker, 
+      programmes, 
+      validationState, 
+      progressState,
+      prerequisiteBoxes,
+      moduleTagsCache
+    } = get();
     
     const dbStats = dbService.getCacheStats();
     const validationStats = validator?.getValidationStats();
@@ -472,7 +554,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         selectedModules: validationState.selectedModules.size,
         violatingModules: validationState.violatingModules.size,
         trackedPaths: progressState.pathFulfillment.size,
-        hasPendingDecision: !!get().pendingDecision
+        hasPendingDecision: !!get().pendingDecision,
+        prerequisiteBoxes: prerequisiteBoxes.size,
+        cachedTags: moduleTagsCache.size
       }
     };
   }

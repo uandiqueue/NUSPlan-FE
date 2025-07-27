@@ -17,7 +17,7 @@ import {
   Button,
   Stack
 } from '@mui/material';
-import BoxRenderer from './BoxRenderer';
+import BoxRenderer from './boxRenderer';
 
 interface ModuleOption {
   module: ModuleCode;
@@ -49,7 +49,6 @@ export const EnhancedModuleSelector: React.FC<{
     isLoading,
     error,
     warnings,
-    dbStatus,
     validationState,
     progressState
   } = usePlannerStore();
@@ -66,7 +65,6 @@ export const EnhancedModuleSelector: React.FC<{
 
   // Load options
   const loadOptions = useCallback(async () => {
-    if (!dbStatus.isConnected) return;
     setLocalLoading(true);
     try {
       const raw = await getFilteredOptions(
@@ -87,7 +85,7 @@ export const EnhancedModuleSelector: React.FC<{
     } finally {
       setLocalLoading(false);
     }
-  }, [courseBox, dbStatus.isConnected, getFilteredOptions]);
+  }, [courseBox, getFilteredOptions]);
 
   useEffect(() => {
     loadOptions();

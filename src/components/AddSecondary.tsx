@@ -1,4 +1,4 @@
-import { useMajorStore } from "../store/useMajorStore";
+import { useMajorStore } from "../store/useProgrammeStore";
 import { useUIStore } from "../store/useUIStore";
 import { Button } from "@mui/material";
 

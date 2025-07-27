@@ -1,4 +1,4 @@
-import { useMajorStore } from "../store/useMajorStore";
+import { useMajorStore } from "../store/useProgrammeStore";
 import { SelectChangeEvent } from "@mui/material/Select";
 import {
   Paper,

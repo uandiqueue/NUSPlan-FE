@@ -1,4 +1,4 @@
-import { useMajorStore } from "../store/useMajorStore";
+import { useMajorStore } from "../store/useProgrammeStore";
 import { useUIStore } from "../store/useUIStore";
 import { SelectChangeEvent } from "@mui/material/Select";
 import {
@@ -43,9 +43,6 @@ function InputSecondaryMajor() {
   }
 
   const isError = secondaryMajor ? isDuplicate(secondaryMajor.id) : false;
-
-  // Data for other majors are not available
-  const tempSecondaryList = ["Life Sciences"];
 
   return (
     <>

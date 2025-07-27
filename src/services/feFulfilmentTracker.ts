@@ -9,13 +9,10 @@ export class FulfilmentTracker {
     private validator: RealtimeValidator;
     private lookupMaps: LookupMaps;
     private programmes: ProgrammePayload[];
-    
-    // Cache for module AU values to improve performance during progress updates
-    private moduleAUCache = new Map<ModuleCode, number>();
 
     constructor(
         progressState: ProgressState,
-        validator: RealtimeValidator, 
+        validator: RealtimeValidator,
         lookupMaps: LookupMaps, 
         programmes: ProgrammePayload[]
     ) {
@@ -24,58 +21,33 @@ export class FulfilmentTracker {
         this.lookupMaps = lookupMaps;
         this.programmes = programmes;
         
-        // Initialize the tracker by preloading module data
-        this.preloadModuleAUs();
-    }
-
-    /**
-     * Preload module AU data for all modules in the academic plan
-     * This improves performance during frequent progress updates
-     */
-    private async preloadModuleAUs(): Promise<void> {
-        try {
-            // Collect all unique modules from lookup maps
-            const allModules = new Set<ModuleCode>();
-            
-            Object.keys(this.lookupMaps.moduleToLeafPaths).forEach(moduleCode => {
-                allModules.add(moduleCode as ModuleCode);
-            });
-            
-            Object.values(this.lookupMaps.leafPathToModules).forEach(modules => {
-                modules.forEach(moduleCode => allModules.add(moduleCode));
-            });
-
-            console.log(`Preloading AU data for ${allModules.size} modules in progress tracker...`);
-            
-            // Use the database service's preload method
-            await dbService.preloadModules(Array.from(allModules));
-            
-            console.log('Module AU preloading completed for progress tracker');
-        } catch (error) {
-            console.error('Error preloading module AU data:', error);
-            // Progress tracking will still work with individual database requests
-        }
     }
 
     /**
      * Update progress when a module is selected/removed
      */
     async updateProgress(module: ModuleCode, action: 'ADD' | 'REMOVE'): Promise<void> {
-        const moduleAU = await this.getModuleAU(module);
-        const doubleCountModules = this.validator.getDoubleCountModules();
-        const allocatedProgrammes = doubleCountModules.get(module) || [];
+        try {
+            const moduleAU = await dbService.getModuleAU(module);
+            const doubleCountModules = this.validator.getDoubleCountModules();
+            const allocatedProgrammes = doubleCountModules.get(module) || [];
 
-        if (action === 'ADD') {
-            await this.addModuleToProgress(module, moduleAU, allocatedProgrammes);
-        } else {
-            await this.removeModuleFromProgress(module, moduleAU, allocatedProgrammes);
+            console.log(`${action} ${module} (${moduleAU} AU) - allocated to:`, allocatedProgrammes);
+
+            if (action === 'ADD') {
+                await this.addModuleToProgress(module, moduleAU, allocatedProgrammes);
+            } else {
+                await this.removeModuleFromProgress(module, moduleAU, allocatedProgrammes);
+            }
+
+            // Recalculate all levels of progress
+            await this.calculateProgrammeProgress();
+            await this.calculateUEProgress();
+            
+            console.log('Progress update completed for', module);
+        } catch (error) {
+            console.error(`Error updating progress for ${module}:`, error);
         }
-
-        // Recalculate programme-level progress
-        await this.calculateProgrammeProgress();
-        
-        // Recalculate UE for major programme
-        await this.calculateUEProgress();
     }
 
     /**
@@ -241,6 +213,8 @@ export class FulfilmentTracker {
                 coreAU,
                 ueAU
             });
+            
+            console.log(`Programme ${programme.programmeId} progress: ${totalFulfilled}/${totalRequired} AU`);
         }
     }
 
@@ -264,7 +238,8 @@ export class FulfilmentTracker {
         for (const section of majorProgramme.sections) {
             if (section.groupType !== 'unrestrictedElectives') {
                 const sectionKey = `${majorProgramme.programmeId}-${section.groupType}`;
-                majorCoreAU += this.progressState.pathFulfillment.get(sectionKey) || 0;
+                const sectionAU = this.progressState.pathFulfillment.get(sectionKey) || 0;
+                majorCoreAU += sectionAU;
             }
         }
 
@@ -272,13 +247,13 @@ export class FulfilmentTracker {
         const totalRequired = majorProgramme.metadata.requiredUnits;
         const ueRequired = Math.max(0, totalRequired - majorCoreAU);
 
-        // Find auto-included modules
+        // Find auto-included modules (modules used in other programmes but not major)
         const autoIncludedModules = await this.findAutoIncludedModules(majorProgramme);
         
         // Calculate auto-included AU using database values
         let autoIncludedAU = 0;
         for (const module of autoIncludedModules) {
-            autoIncludedAU += await this.getModuleAU(module);
+            autoIncludedAU += await dbService.getModuleAU(module);
         }
 
         // Calculate fulfilled and overflow
@@ -291,6 +266,8 @@ export class FulfilmentTracker {
             autoIncludedModules,
             overflow
         };
+        
+        console.log(`UE calculation: ${ueFulfilled}/${ueRequired} AU (${autoIncludedModules.length} auto-included modules)`);
     }
 
     /**
@@ -371,28 +348,52 @@ export class FulfilmentTracker {
     }
 
     private async buildSectionNode(section: any, sectionKey: string, programmeId: string): Promise<RequirementNode | null> {
-        // Calculate section totals from its paths
-        let requiredAU = 0;
         const fulfilledAU = this.progressState.pathFulfillment.get(sectionKey) || 0;
         const modules = this.progressState.pathModules.get(sectionKey) || [];
 
-        // Build children from paths
-        const children = await this.buildPathNodes(section.paths, programmeId, 1);
-        
-        // Calculate required AU from children
-        for (const child of children) {
-            if (child.requiredAU > 0) {
-                requiredAU += child.requiredAU;
+        // Calculate required AU from section paths
+        let requiredAU = 0;
+        if (section.paths && Array.isArray(section.paths)) {
+            for (const path of section.paths) {
+                if (path.requiredUnits && path.requiredUnits > 0) {
+                    requiredAU += path.requiredUnits;
+                }
             }
         }
 
-        if (requiredAU === 0 && children.length === 0) {
-            return null; // Skip empty sections
+        // Skip empty sections
+        if (requiredAU === 0 && modules.length === 0) {
+            return null;
+        }
+
+        // Build children
+        const children: RequirementNode[] = [];
+        if (section.paths && Array.isArray(section.paths)) {
+            for (const path of section.paths.slice(0, 5)) { // Limit for performance
+                const pathKey = `${programmeId}:${path.pathKey}`;
+                const pathFulfilled = this.progressState.pathFulfillment.get(pathKey) || 0;
+                const pathModules = this.progressState.pathModules.get(pathKey) || [];
+                
+                children.push({
+                    pathKey,
+                    displayLabel: path.displayLabel || path.pathKey,
+                    requiredAU: path.requiredUnits || 0,
+                    fulfilledAU: pathFulfilled,
+                    children: [],
+                    isLeaf: true, // Simplified - treat as leaf
+                    groupType: path.groupType || section.groupType,
+                    depth: (path.depth || 0) + 1,
+                    progressPercentage: path.requiredUnits > 0 ? 
+                        (pathFulfilled / path.requiredUnits) * 100 : 0,
+                    status: this.determineNodeStatus(pathFulfilled, path.requiredUnits || 0),
+                    modules: pathModules
+                });
+            }
         }
 
         return {
             pathKey: sectionKey,
-            displayLabel: section.displayLabel,
+            displayLabel: section.displayLabel || section.groupType,
             requiredAU,
             fulfilledAU,
             children,
@@ -405,46 +406,6 @@ export class FulfilmentTracker {
         };
     }
 
-    private async buildPathNodes(paths: PathInfo[], programmeId: string, depth: number): Promise<RequirementNode[]> {
-        const nodes: RequirementNode[] = [];
-        const hierarchy = this.lookupMaps.pathHierarchy[programmeId] || {};
-        
-        // Group paths by parent
-        const rootPaths = paths.filter(path => !path.parentPathKey || path.depth === depth);
-        
-        for (const path of rootPaths) {
-            const pathKey = `${programmeId}:${path.pathKey}`;
-            const fulfilledAU = this.progressState.pathFulfillment.get(pathKey) || 0;
-            const modules = this.progressState.pathModules.get(pathKey) || [];
-            
-            // Find child paths
-            const childPaths = paths.filter(p => p.parentPathKey === path.pathKey);
-            const children = childPaths.length > 0 
-                ? await this.buildPathNodes(childPaths, programmeId, depth + 1)
-                : [];
-            
-            const node: RequirementNode = {
-                pathKey,
-                displayLabel: path.displayLabel,
-                requiredAU: path.requiredUnits,
-                fulfilledAU,
-                children,
-                isLeaf: path.logicType === 'LEAF',
-                groupType: path.groupType,
-                depth: path.depth,
-                progressPercentage: path.requiredUnits > 0 
-                    ? (fulfilledAU / path.requiredUnits) * 100 
-                    : 0,
-                status: this.determineNodeStatus(fulfilledAU, path.requiredUnits),
-                modules
-            };
-            
-            nodes.push(node);
-        }
-        
-        return nodes;
-    }
-
     private determineNodeStatus(
         fulfilled: number, 
         required: number
@@ -452,28 +413,6 @@ export class FulfilmentTracker {
         if (fulfilled === 0) return 'not_started';
         if (fulfilled >= required) return fulfilled > required ? 'exceeded' : 'completed';
         return 'in_progress';
-    }
-
-    /**
-     * Get module AU with caching and database integration
-     */
-    private async getModuleAU(module: ModuleCode): Promise<number> {
-        // Check local cache first
-        if (this.moduleAUCache.has(module)) {
-            return this.moduleAUCache.get(module)!;
-        }
-        
-        // Fallback to database
-        try {
-            const au = await dbService.getModuleAU(module);
-            this.moduleAUCache.set(module, au);
-            return au;
-        } catch (error) {
-            console.error(`Error fetching AU for ${module}:`, error);
-            // Final fallback to 4 AU
-            this.moduleAUCache.set(module, 4);
-            return 4;
-        }
     }
 
     /**
@@ -504,7 +443,7 @@ export class FulfilmentTracker {
 
         const programmeProgress = this.progressState.programmeProgress.get(programmeId);
         const totalProgress = {
-            required: programmeProgress?.totalRequired || 0,
+            required: programmeProgress?.totalRequired || programme.metadata.requiredUnits,
             fulfilled: programmeProgress?.totalFulfilled || 0,
             percentage: programmeProgress ? 
                 (programmeProgress.totalFulfilled / programmeProgress.totalRequired) * 100 : 0
@@ -521,21 +460,24 @@ export class FulfilmentTracker {
 
             // Calculate required AU for this section
             let requiredAU = 0;
-            for (const path of section.paths) {
-                requiredAU += path.requiredUnits;
+            if (section.paths && Array.isArray(section.paths)) {
+                for (const path of section.paths) {
+                    requiredAU += path.requiredUnits || 0;
+                }
             }
 
             // Get detailed module information
-            const moduleDetails = await dbService.getModulesDetails(sectionModules);
+            const moduleDetails = sectionModules.length > 0 ? 
+                await dbService.getModulesDetails(sectionModules) : [];
             const modules = moduleDetails.map(module => ({
-                moduleCode: module.module_code,
+                moduleCode: module.module_code as ModuleCode,
                 title: module.title,
                 au: Number(module.module_credit)
             }));
 
             sectionBreakdown.push({
                 groupType: section.groupType,
-                displayLabel: section.displayLabel,
+                displayLabel: section.displayLabel || section.groupType,
                 required: requiredAU,
                 fulfilled: sectionAU,
                 percentage: requiredAU > 0 ? (sectionAU / requiredAU) * 100 : 0,
@@ -560,23 +502,14 @@ export class FulfilmentTracker {
     }
 
     /**
-     * Clear fulfilment tracker caches
-     */
-    clearCaches(): void {
-        this.moduleAUCache.clear();
-    }
-
-    /**
      * Get fulfilment tracker statistics for debugging
      */
     getTrackerStats(): {
-        cachedModuleAUs: number;
         trackedPaths: number;
         trackedModules: number;
         totalProgrammes: number;
     } {
         return {
-            cachedModuleAUs: this.moduleAUCache.size,
             trackedPaths: this.progressState.pathFulfillment.size,
             trackedModules: this.progressState.pathModules.size,
             totalProgrammes: this.programmes.length

@@ -200,10 +200,10 @@ export interface RequirementNode {
 }
 
 export interface ProgressState {
-    // pathKey -> fulfilled AU
+    // pathId -> fulfilled AU
     pathFulfillment: Map<string, number>;
 
-    // pathKey -> contributing modules
+    // pathId -> contributing modules
     pathModules: Map<string, ModuleCode[]>;
     
     // Programme-level progress

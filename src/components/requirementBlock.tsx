@@ -3,7 +3,7 @@ import { ProgrammeSection, CourseBox, LookupMaps } from '../types/shared-types';
 import { ModuleCode } from '../types/nusmods-types';
 import { Box, Typography, Button, IconButton } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import BoxRenderer from './BoxRenderer';
+import BoxRenderer from './boxRenderer';
 import { dbService } from '../services/dbQuery';
 import { usePlannerStore } from '../store/usePlannerStore';
 

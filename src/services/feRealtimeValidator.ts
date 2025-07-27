@@ -32,6 +32,7 @@ export class RealtimeValidator {
 
         // Preload module data when validator is initialized
         this.preloadModuleData();
+        this.initPreselectedMapping();
     }
 
     /**
@@ -57,6 +58,28 @@ export class RealtimeValidator {
         } catch (error) {
             console.error('Error preloading module data:', error);
             // Don't fail validation if preloading fails - validation will still work with individual requests
+        }
+    }
+
+    private initPreselectedMapping(): void {
+        for (const programme of this.programmes as ProgrammePayload[]) {
+            const pre = programme.preselectedModules ?? [];
+            for (const module of pre) {
+                this.validationState.selectedModules.add(module);
+            }
+            for (const section of programme.sections) {
+                for (const box of section.courseBoxes) {
+                    if (box.kind !== 'exact') continue;
+                    const boxKey = box.boxKey;
+                    const moduleCode = box.moduleCode as ModuleCode;
+                    let set = this.validationState.moduleToBoxMapping.get(moduleCode);
+                    if (!set) {
+                        set = new Set<string>();
+                        this.validationState.moduleToBoxMapping.set(moduleCode, set);
+                    }
+                    set.add(boxKey);
+                }
+            }
         }
     }
 

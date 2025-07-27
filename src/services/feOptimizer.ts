@@ -2,10 +2,9 @@ import type { LookupMaps, ProgrammePayload } from '../types/shared-types';
 import type { ModuleCode } from '../types/nusmods-types';
 import type { RealtimeValidator } from './feRealtimeValidator';
 import type { ModuleTag, TagLabel, DecisionOption, PendingDecision } from '../types/frontend-types';
-import { FEDatabaseQueryService } from './dbQuery';
+import { dbService } from './dbQuery';
 
 export class Optimizer {
-  private dbService: FEDatabaseQueryService;
   private validator: RealtimeValidator;
   private lookupMaps: LookupMaps;
   private programmes: ProgrammePayload[];
@@ -14,7 +13,6 @@ export class Optimizer {
     this.validator = validator;
     this.lookupMaps = lookupMaps;
     this.programmes = programmes;
-    this.dbService = FEDatabaseQueryService.getInstance();
   }
 
   /**
@@ -49,7 +47,7 @@ export class Optimizer {
     for (const path of leafPaths) {
       const isDulled = strippedTags.has(path.pathId);
       const isMaxCap = this.isPathAtMaxCap(path.pathId);
-      const pathInfo = await this.dbService.getRequirementPathById(path.pathId);
+      const pathInfo = await dbService.getRequirementPathById(path.pathId);
 
       if (pathInfo) {
         labels.push({
@@ -136,7 +134,7 @@ export class Optimizer {
     if (!doubleCountInfo || doubleCountInfo.maxPossibleDoubleCount === 0) return null;
 
     const doubleCountUsage = this.validator.getDoubleCountUsage();
-    const moduleAU = await this.dbService.getModuleAU(module);
+    const moduleAU = await dbService.getModuleAU(module);
     const eligibleProgrammes = doubleCountInfo.eligibleProgrammes;
 
     // Filter programmes that can still accept this module
@@ -217,7 +215,7 @@ export class Optimizer {
     };
   }[]> {
     // Batch fetch module details for better performance
-    const moduleDetails = await this.dbService.getModulesDetails(boxOptions);
+    const moduleDetails = await dbService.getModulesDetails(boxOptions);
     const moduleDetailsMap = new Map(moduleDetails.map(mod => [mod.module_code, mod]));
 
     const results = await Promise.all(

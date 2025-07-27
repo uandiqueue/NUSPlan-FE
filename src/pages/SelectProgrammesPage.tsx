@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Box, Typography, Button, Snackbar, CircularProgress, Alert } from "@mui/material";
-import { useMajorStore } from "../store/useMajorStore";
+import { useMajorStore } from "../store/useProgrammeStore";
 import { useUIStore } from "../store/useUIStore";
 import InputPrimaryMajor from "../components/InputPrimaryMajor";
 import InputSecondaryMajor from "../components/InputSecondaryMajor";

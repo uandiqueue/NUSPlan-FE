@@ -9,69 +9,95 @@ interface ProgressSummary {
 
 export default function ProgressGraph() {
   const { programme, getProgressSummary } = usePlannerStore();
-  const [summary, setSummary] = useState<ProgressSummary | null>(null);
+  const [summary, setSummary] = useState<ProgressSummary>({ requiredUnits: 0, fulfilledUnits: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    let active = true;
     setLoading(true);
     getProgressSummary(programme.programmeId)
       .then((data: any) => {
-        if (cancelled) return;
-        // To change to match response
-        setSummary({
-          requiredUnits: data.requiredUnits ?? data.required ?? 0,
-          fulfilledUnits: data.fulfilledUnits ?? data.fulfilled ?? 0,
-        });
+        if (!active) return;
+        // handle different possible shapes
+        const total = data.totalProgress?.required 
+          ?? data.requiredUnits 
+          ?? data.required 
+          ?? 0;
+        const fulfilled = data.totalProgress?.fulfilled 
+          ?? data.fulfilledUnits 
+          ?? data.fulfilled 
+          ?? 0;
+        setSummary({ requiredUnits: total, fulfilledUnits: fulfilled });
       })
       .catch((e: any) => {
         console.error('Error fetching progress summary:', e);
-        if (!cancelled) setError('Failed to load progress');
+        if (active) setError('Failed to load progress');
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (active) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      active = false;
     };
   }, [programme.programmeId, getProgressSummary]);
 
   if (loading) {
     return (
-      <Box my={2}>
+      <Box sx={{ width: '100%', my: 2 }}>
         <LinearProgress />
       </Box>
     );
   }
 
-  if (error || !summary) {
-    return <Typography color="error">{error || 'No progress data available'}</Typography>;
+  if (error) {
+    return <Typography color="error">{error}</Typography>;
   }
 
   const { requiredUnits, fulfilledUnits } = summary;
-  const percent = requiredUnits === 0 ? 0 : Math.round((fulfilledUnits / requiredUnits) * 100);
+  const percent = requiredUnits === 0
+    ? 0
+    : Math.round((fulfilledUnits / requiredUnits) * 100);
 
   return (
-    <Box position="relative" display="inline-flex" flexDirection="column" alignItems="center">
-      <CircularProgress variant="determinate" value={percent} size={120} thickness={5} />
+    <Box
+      sx={{
+        width: 140,
+        height: 140,
+        position: 'relative',
+        display: 'inline-flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <CircularProgress
+        variant="determinate"
+        value={percent}
+        size={120}
+        thickness={5}
+      />
       <Box
-        top={0}
-        left={0}
-        bottom={0}
-        right={0}
-        position="absolute"
-        display="flex"
-        alignItems="center"
-        justifyContent="center"
+        sx={{
+          top: 0,
+          left: 0,
+          bottom: 0,
+          right: 0,
+          position: 'absolute',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
       >
         <Typography variant="h6" component="div">
           {percent}%
         </Typography>
       </Box>
-      <Typography variant="body2" sx={{ mt: 1 }}>
-        {fulfilledUnits}/{requiredUnits} MC fulfilled
-      </Typography>
+      <Box sx={{ mt: 1 }}>
+        <Typography variant="body2">
+          {fulfilledUnits}/{requiredUnits} MC fulfilled
+        </Typography>
+      </Box>
     </Box>
   );
 }
