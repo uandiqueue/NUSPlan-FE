@@ -93,10 +93,10 @@ export class FulfilmentTracker {
             // or if no allocation specified (single count)
             if (allocatedProgrammes.length === 0 || allocatedProgrammes.includes(leafPath.programmeId)) {
                 // Add to leaf path
-                this.addToPath(leafPath.pathKey, moduleAU, module);
-                
+                this.addToPath(leafPath.pathId, moduleAU, module);
+
                 // Add to all parent paths
-                await this.addToParentPaths(leafPath.pathKey, leafPath.programmeId, moduleAU, module);
+                await this.addToParentPaths(leafPath.pathId, leafPath.programmeId, moduleAU, module);
             }
         }
     }
@@ -111,53 +111,53 @@ export class FulfilmentTracker {
         for (const leafPath of leafPaths) {
             if (allocatedProgrammes.length === 0 || allocatedProgrammes.includes(leafPath.programmeId)) {
                 // Remove from leaf path
-                this.removeFromPath(leafPath.pathKey, moduleAU, module);
-                
+                this.removeFromPath(leafPath.pathId, moduleAU, module);
+
                 // Remove from all parent paths
-                await this.removeFromParentPaths(leafPath.pathKey, leafPath.programmeId, moduleAU, module);
+                await this.removeFromParentPaths(leafPath.pathId, leafPath.programmeId, moduleAU, module);
             }
         }
     }
 
-    private addToPath(pathKey: string, moduleAU: number, module: ModuleCode): void {
+    private addToPath(pathId: string, moduleAU: number, module: ModuleCode): void {
         // Update fulfilled AU
-        const currentAU = this.progressState.pathFulfillment.get(pathKey) || 0;
-        this.progressState.pathFulfillment.set(pathKey, currentAU + moduleAU);
-        
+        const currentAU = this.progressState.pathFulfillment.get(pathId) || 0;
+        this.progressState.pathFulfillment.set(pathId, currentAU + moduleAU);
+
         // Add module to path
-        const currentModules = this.progressState.pathModules.get(pathKey) || [];
+        const currentModules = this.progressState.pathModules.get(pathId) || [];
         if (!currentModules.includes(module)) {
             currentModules.push(module);
-            this.progressState.pathModules.set(pathKey, currentModules);
+            this.progressState.pathModules.set(pathId, currentModules);
         }
     }
 
-    private removeFromPath(pathKey: string, moduleAU: number, module: ModuleCode): void {
+    private removeFromPath(pathId: string, moduleAU: number, module: ModuleCode): void {
         // Update fulfilled AU
-        const currentAU = this.progressState.pathFulfillment.get(pathKey) || 0;
-        this.progressState.pathFulfillment.set(pathKey, Math.max(0, currentAU - moduleAU));
-        
+        const currentAU = this.progressState.pathFulfillment.get(pathId) || 0;
+        this.progressState.pathFulfillment.set(pathId, Math.max(0, currentAU - moduleAU));
+
         // Remove module from path
-        const currentModules = this.progressState.pathModules.get(pathKey) || [];
+        const currentModules = this.progressState.pathModules.get(pathId) || [];
         const updatedModules = currentModules.filter(m => m !== module);
-        this.progressState.pathModules.set(pathKey, updatedModules);
+        this.progressState.pathModules.set(pathId, updatedModules);
     }
 
-    private async addToParentPaths(leafPathKey: string, programmeId: string, moduleAU: number, module: ModuleCode): Promise<void> {
-        const parentPaths = this.findParentPaths(leafPathKey, programmeId);
-        for (const parentPathKey of parentPaths) {
-            this.addToPath(parentPathKey, moduleAU, module);
+    private async addToParentPaths(leafPathId: string, programmeId: string, moduleAU: number, module: ModuleCode): Promise<void> {
+        const parentPaths = this.findParentPaths(leafPathId, programmeId);
+        for (const parentPathId of parentPaths) {
+            this.addToPath(parentPathId, moduleAU, module);
         }
     }
 
-    private async removeFromParentPaths(leafPathKey: string, programmeId: string, moduleAU: number, module: ModuleCode): Promise<void> {
-        const parentPaths = this.findParentPaths(leafPathKey, programmeId);
-        for (const parentPathKey of parentPaths) {
-            this.removeFromPath(parentPathKey, moduleAU, module);
+    private async removeFromParentPaths(leafPathId: string, programmeId: string, moduleAU: number, module: ModuleCode): Promise<void> {
+        const parentPaths = this.findParentPaths(leafPathId, programmeId);
+        for (const parentPathId of parentPaths) {
+            this.removeFromPath(parentPathId, moduleAU, module);
         }
     }
 
-    private findParentPaths(pathKey: string, programmeId: string): string[] {
+    private findParentPaths(pathId: string, programmeId: string): string[] {
         const parents: string[] = [];
         const hierarchy = this.lookupMaps.pathHierarchy[programmeId];
         if (!hierarchy) return parents;
@@ -173,12 +173,6 @@ export class FulfilmentTracker {
             }
         };
         
-        // Extract the path part from the full pathKey (format: programmeId:pathKey)
-        const pathPart = pathKey.split(':')[1];
-        if (pathPart) {
-            findAncestors(pathPart);
-        }
-        
         // Also add the programme-level and section-level paths
         const programme = this.programmes.find(p => p.programmeId === programmeId);
         if (programme) {
@@ -186,7 +180,7 @@ export class FulfilmentTracker {
             parents.push(programmeId);
             
             // Add section-level path
-            const leafPath = this.lookupMaps.moduleToLeafPaths[pathKey];
+            const leafPath = this.lookupMaps.moduleToLeafPaths[pathId];
             if (leafPath && leafPath.length > 0) {
                 const sectionKey = `${programmeId}-${leafPath[0].groupType}`;
                 if (!parents.includes(sectionKey)) {
