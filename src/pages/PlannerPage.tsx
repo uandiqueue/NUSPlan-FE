@@ -165,7 +165,7 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
           }}
         >
           {programme.sections.map((sec: any) => (
-            <RequirementBlock key={sec.requirementKey} block={sec} />
+            <RequirementBlock key={sec.requirementKey} block={sec} programmeId={programme.programmeId} lookupMaps={programme.lookupMaps}/>
           ))}
         </Box>
 

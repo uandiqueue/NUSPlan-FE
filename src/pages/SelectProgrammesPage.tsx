@@ -97,12 +97,26 @@ export default function SelectProgrammesPage() {
       setLoading(true);
       const req: ProcessProgrammesRequest = { programmeIds }; // to account for userId in the future
       const res: BackendResponse<ProcessProgrammesResponse> = await generateAP(req);
-
-      const programmes: ProgrammePayload[] = res.data.programmes;
+      const globalLookup = res.data.lookup;
+      const programmes: ProgrammePayload[] = res.data.programmes.map(p => ({
+        ...p,
+        lookupMaps: globalLookup
+      }));
 
       console.log("ProcessProgrammesResponse:", res); // FOR DEBUGGING PURPOSES
       console.log("Backend payloads:", programmes); // FOR DEBUGGING PURPOSES
       //exportJson(payloads, 'payloads.json'); // DEBUG
+
+
+      if (programmes.length > 0) {
+        programmes[0].sections.push({
+          groupType: 'unrestrictedElectives',
+          displayLabel: 'Unrestricted Electives',
+          paths: [],
+          courseBoxes: [], // Starts empty
+          hidden: [],
+        });
+      }
 
       if (!programmes.length) {
         setErrorMessage('Backend returned no payload.');

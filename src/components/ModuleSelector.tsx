@@ -127,7 +127,7 @@ export const EnhancedModuleSelector: React.FC<{
 
   // -- FIND THE PATH DISPLAY LABEL FOR THIS BOX (all types)
   const pathInfo = sectionPaths.find((p) => p.pathId === courseBox.pathId);
-  const boxTitle = pathInfo?.displayLabel || '';
+  const boxTitle = pathInfo?.displayLabel || 'Unrestricted Elective'; // Not a good practice, but too troublesome to fix this
 
   switch (courseBox.kind) {
     case 'exact': {
