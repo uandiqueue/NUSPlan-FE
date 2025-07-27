@@ -429,10 +429,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
    * Clear all caches
    */
   clearCaches: () => {
-    const { validator, optimizer, tracker } = get();
-    
+    const { tracker } = get();
+
     dbService.clearCache();
-    optimizer?.clearCaches();
     tracker?.clearCaches();
   },
 

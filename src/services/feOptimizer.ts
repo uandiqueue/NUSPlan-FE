@@ -1,25 +1,24 @@
-import type { LookupMaps, LeafPathMapping, ProgrammePayload } from '../types/shared-types';
+import type { LookupMaps, ProgrammePayload } from '../types/shared-types';
 import type { ModuleCode } from '../types/nusmods-types';
 import type { RealtimeValidator } from './feRealtimeValidator';
 import type { ModuleTag, TagLabel, DecisionOption, PendingDecision } from '../types/frontend-types';
-import { dbService } from './dbQuery';
+import { FEDatabaseQueryService } from './dbQuery';
 
 export class Optimizer {
+  private dbService: FEDatabaseQueryService;
   private validator: RealtimeValidator;
   private lookupMaps: LookupMaps;
   private programmes: ProgrammePayload[];
-
-  // Cache for module AU values to improve UI performance
-  private moduleAUCache = new Map<ModuleCode, number>();
 
   constructor(validator: RealtimeValidator, lookupMaps: LookupMaps, programmes: ProgrammePayload[]) {
     this.validator = validator;
     this.lookupMaps = lookupMaps;
     this.programmes = programmes;
+    this.dbService = FEDatabaseQueryService.getInstance();
   }
 
   /**
-   * Generate module tags with proper dulling based on validator state
+   * Generate module tags with dulling based on validator state
    */
   async generateModuleTags(module: ModuleCode): Promise<ModuleTag[]> {
     const tags: ModuleTag[] = [];
@@ -40,25 +39,28 @@ export class Optimizer {
   }
 
   /**
-   * Generate R tags showing LEAF path names
+   * Generate R tags showing section path names
    */
   private async generateRequirementTag(module: ModuleCode): Promise<ModuleTag> {
     const leafPaths = this.lookupMaps.moduleToLeafPaths[module] || [];
     const labels: TagLabel[] = [];
     const strippedTags = this.validator.getStrippedTags().get(module) || new Set();
 
-    leafPaths.forEach(path => {
-      const isDulled = strippedTags.has(path.pathKey);
-      const isMaxCap = this.isPathAtMaxCap(path.pathKey);
+    for (const path of leafPaths) {
+      const isDulled = strippedTags.has(path.pathId);
+      const isMaxCap = this.isPathAtMaxCap(path.pathId);
+      const pathInfo = await this.dbService.getRequirementPathById(path.pathId);
 
-      labels.push({
-        text: path.displayLabel,
-        pathKey: path.pathKey,
-        isDulled,
-        isHighlighted: isMaxCap,
-        context: `${path.groupType} - ${path.requiredUnits} AU required`
-      });
-    });
+      if (pathInfo) {
+        labels.push({
+          text: `${this.camelToProperCase(pathInfo.group_type)} - ${pathInfo.display_label}`,
+          pathKey: pathInfo.path_key,
+          isDulled,
+          isHighlighted: isMaxCap,
+          context: `${pathInfo.display_label}: ${pathInfo.required_units} units required`,
+        });
+      }
+    }
 
     return {
       type: 'R',
@@ -74,12 +76,16 @@ export class Optimizer {
   private async generateDoubleCountTag(module: ModuleCode): Promise<ModuleTag> {
     const doubleCountInfo = this.lookupMaps.doubleCountEligibility[module];
     if (!doubleCountInfo || doubleCountInfo.maxPossibleDoubleCount === 0) {
-      return { type: 'D', labels: [], isVisible: false, isFaded: false };
+      return { 
+        type: 'D', 
+        labels: [], 
+        isVisible: false, 
+        isFaded: false 
+      };
     }
 
     const labels: TagLabel[] = [];
     const doubleCountUsage = this.validator.getDoubleCountUsage();
-
     doubleCountInfo.eligibleProgrammes.forEach(programmeId => {
       const programme = this.getProgramme(programmeId);
       if (!programme) return;
@@ -92,13 +98,13 @@ export class Optimizer {
 
       // Get unique group types for this programme
       const groupTypes = [...new Set(relevantPaths.map(p => p.groupType))];
-      const section = groupTypes.join(' & ');
+      const section = this.camelToProperCase(groupTypes.join(' & '));
 
       const currentUsage = doubleCountUsage.get(programmeId) || 0;
       const isDulled = currentUsage >= programme.metadata.doubleCountCap;
 
       labels.push({
-        text: `${programme.metadata.name} -- ${section}`,
+        text: `${programme.metadata.name} - ${section}`,
         programmeId,
         isDulled,
         isHighlighted: false,
@@ -130,7 +136,7 @@ export class Optimizer {
     if (!doubleCountInfo || doubleCountInfo.maxPossibleDoubleCount === 0) return null;
 
     const doubleCountUsage = this.validator.getDoubleCountUsage();
-    const moduleAU = await this.getModuleAU(module);
+    const moduleAU = await this.dbService.getModuleAU(module);
     const eligibleProgrammes = doubleCountInfo.eligibleProgrammes;
 
     // Filter programmes that can still accept this module
@@ -211,7 +217,7 @@ export class Optimizer {
     };
   }[]> {
     // Batch fetch module details for better performance
-    const moduleDetails = await dbService.getModulesDetails(boxOptions);
+    const moduleDetails = await this.dbService.getModulesDetails(boxOptions);
     const moduleDetailsMap = new Map(moduleDetails.map(mod => [mod.module_code, mod]));
 
     const results = await Promise.all(
@@ -255,21 +261,10 @@ export class Optimizer {
       warnings.push(`Module is already used in 2 requirements`);
     }
 
-    // Check for prerequisite warnings
     try {
-      const prereqRules = await dbService.getModulePrerequisites(module);
-      const requiredModules = prereqRules
-        .flatMap(rule => Array.isArray(rule.required_modules) ? rule.required_modules : [])
-        .filter((v, i, arr) => v && arr.indexOf(v) === i);
-
-      if (requiredModules.length > 0) {
-        const selectedModules = this.validator.getSelectedModules();
-        const missingPrereqs = requiredModules.filter(
-          prereq => !selectedModules.has(prereq as ModuleCode)
-        );
-        if (missingPrereqs.length > 0) {
-          warnings.push(`Missing prerequisites: ${missingPrereqs.join(', ')}`);
-        }
+      const prereqResult = await this.validator.isPrerequisiteFulfilled(module);
+      if (!prereqResult) {
+        warnings.push(`Missing prerequisites for ${module}`);
       }
 
     } catch (error) {
@@ -307,28 +302,6 @@ export class Optimizer {
    */
   private getProgramme(programmeId: string): ProgrammePayload | undefined {
     return this.programmes.find(p => p.programmeId === programmeId);
-  }
-
-  /**
-   * Get module AU value with caching and database integration
-   */
-  private async getModuleAU(module: ModuleCode): Promise<number> {
-    // Check local cache first
-    if (this.moduleAUCache.has(module)) {
-      return this.moduleAUCache.get(module)!;
-    }
-
-    // Fallback to database
-    try {
-      const au = await dbService.getModuleAU(module);
-      this.moduleAUCache.set(module, au);
-      return au;
-    } catch (error) {
-      console.error(`Error fetching AU for ${module}:`, error);
-      // Final fallback to 4 AU
-      this.moduleAUCache.set(module, 4);
-      return 4;
-    }
   }
 
   /**
@@ -394,22 +367,23 @@ export class Optimizer {
   }
 
   /**
-   * Clear optimizer caches (useful when switching between academic plans)
+   * Prettify Helper
    */
-  clearCaches(): void {
-    this.moduleAUCache.clear();
+  camelToProperCase(input: string): string {
+    return input
+      .replace(/([A-Z])/g, ' $1')
+      .trim()
+      .replace(/\b\w/g, char => char.toUpperCase());
   }
 
   /**
    * Get optimizer cache statistics for debugging
    */
   getOptimizerStats(): {
-    cachedModuleAUs: number;
     totalProgrammes: number;
     totalModulesInLookup: number;
   } {
     return {
-      cachedModuleAUs: this.moduleAUCache.size,
       totalProgrammes: this.programmes.length,
       totalModulesInLookup: Object.keys(this.lookupMaps.moduleToLeafPaths).length
     };
