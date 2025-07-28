@@ -186,7 +186,7 @@ export interface PrerequisiteTreeNode {
 
 // FE Progress-Tracker
 export interface RequirementNode {
-    pathKey: string;
+    pathId: string;
     displayLabel: string;
     requiredAU: number;
     fulfilledAU: number;

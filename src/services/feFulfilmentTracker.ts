@@ -59,7 +59,7 @@ export class FulfilmentTracker {
         allocatedProgrammes: string[]
     ): Promise<void> {
         const leafPaths = this.lookupMaps.moduleToLeafPaths[module] || [];
-        
+
         for (const leafPath of leafPaths) {
             // Only count if this programme is in allocated programmes (for double counting)
             // or if no allocation specified (single count)
@@ -143,6 +143,7 @@ export class FulfilmentTracker {
                 }
             }
         };
+        findAncestors(pathId);
         
         // Also add the programme-level and section-level paths
         const programme = this.programmes.find(p => p.programmeId === programmeId);
@@ -176,8 +177,11 @@ export class FulfilmentTracker {
                 for (const anyProgramme of this.programmes) {
                     for (const section of anyProgramme.sections) {
                         if (section.groupType !== 'unrestrictedElectives') {
-                            const sectionKey = `${anyProgramme.programmeId}-${section.groupType}`;
-                            const sectionAU = this.progressState.pathFulfillment.get(sectionKey) || 0;
+                            const programmeKey = this.toSnakeCase(anyProgramme.metadata.name);
+                            const programmeType = this.toSnakeCase(anyProgramme.metadata.type);
+                            const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
+                            const sectionId = await dbService.getPathId(anyProgramme.programmeId, sectionKey);
+                            const sectionAU = sectionId ? this.progressState.pathFulfillment.get(sectionId) || 0 : 0;
                             totalFulfilled += sectionAU;
                             if (anyProgramme.programmeId === programme.programmeId) {
                                 coreAU += sectionAU;
@@ -189,8 +193,11 @@ export class FulfilmentTracker {
                 // Other programmes show only their own units
                 for (const section of programme.sections) {
                     if (section.groupType !== 'unrestrictedElectives') {
-                        const sectionKey = `${programme.programmeId}-${section.groupType}`;
-                        const sectionAU = this.progressState.pathFulfillment.get(sectionKey) || 0;
+                        const programmeKey = this.toSnakeCase(programme.metadata.name);
+                        const programmeType = this.toSnakeCase(programme.metadata.type);
+                        const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
+                        const sectionId = await dbService.getPathId(programme.programmeId, sectionKey);
+                        const sectionAU = sectionId ? this.progressState.pathFulfillment.get(sectionId) || 0 : 0;
                         totalFulfilled += sectionAU;
                         coreAU += sectionAU;
                     }
@@ -235,8 +242,11 @@ export class FulfilmentTracker {
         let majorCoreAU = 0;
         for (const section of majorProgramme.sections) {
             if (section.groupType !== 'unrestrictedElectives') {
-                const sectionKey = `${majorProgramme.programmeId}-${section.groupType}`;
-                const sectionAU = this.progressState.pathFulfillment.get(sectionKey) || 0;
+                const programmeKey = this.toSnakeCase(majorProgramme.metadata.name);
+                const programmeType = this.toSnakeCase(majorProgramme.metadata.type);
+                const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
+                const sectionId = await dbService.getPathId(majorProgramme.programmeId, sectionKey);
+                const sectionAU = sectionId ? this.progressState.pathFulfillment.get(sectionId) || 0 : 0;
                 majorCoreAU += sectionAU;
             }
         }
@@ -312,18 +322,22 @@ export class FulfilmentTracker {
 
         // Build nodes for each section
         for (const section of programme.sections) {
-            const sectionKey = `${programmeId}-${section.groupType}`;
-            const sectionNode = await this.buildSectionNode(section, sectionKey, programmeId);
-            
-            if (sectionNode) {
-                nodes.push(sectionNode);
+            const programmeKey = this.toSnakeCase(programme.metadata.name);
+            const programmeType = this.toSnakeCase(programme.metadata.type);
+            const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
+            const sectionId = await dbService.getPathId(programme.programmeId, sectionKey);
+            if (sectionId !== null) {
+                const sectionNode = await this.buildSectionNode(section, sectionId, programmeId);
+                if (sectionNode) {
+                    nodes.push(sectionNode);
+                }
             }
         }
 
         // Add UE section for major programmes
         if (programme.metadata.type === 'major' && this.progressState.ueCalculation.required > 0) {
             const ueNode: RequirementNode = {
-                pathKey: `${programmeId}-unrestrictedElectives`,
+                pathId: `${programmeId}-unrestrictedElectives`,
                 displayLabel: 'Unrestricted Electives',
                 requiredAU: this.progressState.ueCalculation.required,
                 fulfilledAU: this.progressState.ueCalculation.fulfilled,
@@ -346,9 +360,9 @@ export class FulfilmentTracker {
         return nodes;
     }
 
-    private async buildSectionNode(section: any, sectionKey: string, programmeId: string): Promise<RequirementNode | null> {
-        const fulfilledAU = this.progressState.pathFulfillment.get(sectionKey) || 0;
-        const modules = this.progressState.pathModules.get(sectionKey) || [];
+    private async buildSectionNode(section: any, sectionId: string, programmeId: string): Promise<RequirementNode | null> {
+        const fulfilledAU = this.progressState.pathFulfillment.get(sectionId) || 0;
+        const modules = this.progressState.pathModules.get(sectionId) || [];
 
         // Calculate required AU from section paths
         let requiredAU = 0;
@@ -368,13 +382,12 @@ export class FulfilmentTracker {
         // Build children
         const children: RequirementNode[] = [];
         if (section.paths && Array.isArray(section.paths)) {
-            for (const path of section.paths.slice(0, 5)) { // Limit for performance
-                const pathKey = `${programmeId}:${path.pathKey}`;
-                const pathFulfilled = this.progressState.pathFulfillment.get(pathKey) || 0;
-                const pathModules = this.progressState.pathModules.get(pathKey) || [];
-                
+            for (const path of section.paths.slice(0, 5)) {
+                const pathFulfilled = this.progressState.pathFulfillment.get(path.pathId) || 0;
+                const pathModules = this.progressState.pathModules.get(path.pathId) || [];
+
                 children.push({
-                    pathKey,
+                    pathId: path.pathId,
                     displayLabel: path.displayLabel || path.pathKey,
                     requiredAU: path.requiredUnits || 0,
                     fulfilledAU: pathFulfilled,
@@ -391,7 +404,7 @@ export class FulfilmentTracker {
         }
 
         return {
-            pathKey: sectionKey,
+            pathId: sectionId,
             displayLabel: section.displayLabel || section.groupType,
             requiredAU,
             fulfilledAU,
@@ -439,6 +452,7 @@ export class FulfilmentTracker {
                 sectionBreakdown: []
             };
         }
+       
 
         const programmeProgress = this.progressState.programmeProgress.get(programmeId);
         const totalProgress = {
@@ -452,10 +466,12 @@ export class FulfilmentTracker {
 
         for (const section of programme.sections) {
             if (section.groupType === 'unrestrictedElectives') continue;
-
-            const sectionKey = `${programmeId}-${section.groupType}`;
-            const sectionAU = this.progressState.pathFulfillment.get(sectionKey) || 0;
-            const sectionModules = this.progressState.pathModules.get(sectionKey) || [];
+            const programmeKey = this.toSnakeCase(programme.metadata.name);
+            const programmeType = this.toSnakeCase(programme.metadata.type);
+            const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
+            const sectionId = await dbService.getPathId(programme.programmeId, sectionKey);
+            const sectionAU = sectionId ? this.progressState.pathFulfillment.get(sectionId) || 0 : 0;
+            const sectionModules = sectionId ? this.progressState.pathModules.get(sectionId) || [] : [];
 
             // Calculate required AU for this section
             let requiredAU = 0;
@@ -486,6 +502,15 @@ export class FulfilmentTracker {
 
         return { totalProgress, sectionBreakdown };
     }
+
+    // snake_case helper
+    toSnakeCase(input: string): string {
+        return input
+            .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+            .replace(/[\s\-]+/g, '_')
+            .toLowerCase();
+    }
+
 
     // Getters for UI components
     getProgressState(): ProgressState {

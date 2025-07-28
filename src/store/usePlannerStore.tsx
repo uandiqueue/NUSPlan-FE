@@ -14,8 +14,7 @@ import { FulfilmentTracker } from '../services/feFulfilmentTracker';
 import { dbService } from '../services/dbQuery';
 import { supabase } from '../config/supabase';
 
-// the data structure that will be stored in the database
-// which path is selected for a section in a programme
+// Data structures
 export interface UserPathSelection {
   programmeId: string;
   groupType: RequirementGroupType;
@@ -23,7 +22,6 @@ export interface UserPathSelection {
 }
 export type UserPathSelections = UserPathSelection[];
 
-// which module is selected in a particular box
 export interface UserModuleSelection {
   programmeId: string;
   groupType: RequirementGroupType;
@@ -33,7 +31,6 @@ export interface UserModuleSelection {
 }
 export type UserModuleSelections = UserModuleSelection[];
 
-// user added boxes
 export interface UserAddedBox {
   programmeId: string;
   groupType: RequirementGroupType;
@@ -41,7 +38,7 @@ export interface UserAddedBox {
 }
 export type UserAddedBoxes = UserAddedBox[];
 
-
+// Zustand store
 export interface PlannerState {
   // Core data
   programmes: ProgrammePayload[];
@@ -50,29 +47,27 @@ export interface PlannerState {
   selectedProgramIndex: number;
 
   // Validation and UI state
+  progressVersion: number;
   validationState: ValidationState;
   progressState: ProgressState;
   pendingDecision: PendingDecision | null;
 
-  // Add prerequisite tracking
   prerequisiteBoxes: Map<ModuleCode, CourseBox[]>;
   moduleTagsCache: Map<ModuleCode, ModuleTag[]>;
 
-  // Service instances
   validator: RealtimeValidator | null;
   optimizer: Optimizer | null;
   tracker: FulfilmentTracker | null;
 
-  // UI state
   isLoading: boolean;
   error: string | null;
   warnings: string[];
 
-  // Path selections: which alternative path is chosen per section
+  // Path selections
   userPathSelections: UserPathSelections;
   setPathSelection: (programmeId: string, groupType: RequirementGroupType, pathId: string) => void;
 
-  // Module selections: which module the user picked per CourseBox
+  // Module selections
   userModuleSelections: UserModuleSelections;
   setBoxModuleSelection: (
     programmeId: string,
@@ -87,8 +82,6 @@ export interface PlannerState {
     pathId: string,
     boxKey: string
   ) => void;
-
-  // Recursively remove all module selections under a CourseBox tree (altPath)
   removeAllModulesUnderPath: (
     programmeId: string,
     groupType: RequirementGroupType,
@@ -102,7 +95,6 @@ export interface PlannerState {
 
   loadUserPlannerData: (userId: string) => Promise<void>;
   saveUserPlannerData: (userId: string) => Promise<void>;
-
 
   // Actions
   loadProgrammes: (programmes: ProgrammePayload[], lookupMaps: LookupMaps) => Promise<void>;
@@ -127,12 +119,12 @@ export interface PlannerState {
 }
 
 export const usePlannerStore = create<PlannerState>((set, get) => ({
-  // Initial state
   programmes: [],
   programme: {} as ProgrammePayload,
   lookupMaps: {} as LookupMaps,
   selectedProgramIndex: 0,
 
+  progressVersion: 0,
   validationState: {
     maxRuleFulfillment: new Map(),
     strippedTags: new Map(),
@@ -157,8 +149,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   },
 
   pendingDecision: null,
-
-  // Initialize service integration state
   prerequisiteBoxes: new Map(),
   moduleTagsCache: new Map(),
 
@@ -174,40 +164,45 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   userAddedBoxes: [],
 
   loadUserPlannerData: async (userId) => {
-    const { data, error } = await supabase
-      .from("user_planner_data")
-      .select("user_path_selections, user_module_selections, user_added_boxes")
-      .eq("user_id", userId)
-      .single();
-
-    if (data) {
-      set({
-        userPathSelections: data.user_path_selections ?? [],
-        userModuleSelections: data.user_module_selections ?? [],
-        userAddedBoxes: data.user_added_boxes ?? []
-      });
+    try {
+      const { data, error } = await supabase
+        .from("user_planner_data")
+        .select("user_path_selections, user_module_selections, user_added_boxes")
+        .eq("user_id", userId)
+        .single();
+      if (data) {
+        set({
+          userPathSelections: data.user_path_selections ?? [],
+          userModuleSelections: data.user_module_selections ?? [],
+          userAddedBoxes: data.user_added_boxes ?? []
+        });
+      }
+      if (error) console.log("Error getting data from database: ", error);
+    } catch (e) {
+      console.error(e);
     }
-    if (error) console.log("Error getting data from database: ", error);
   },
 
   saveUserPlannerData: async (userId) => {
-    const state = get();
-    const { error } = await supabase
-      .from("user_planner_data")
-      .upsert([{
-        user_id: userId,
-        user_path_selections: state.userPathSelections,
-        user_module_selections: state.userModuleSelections,
-        user_added_boxes: state.userAddedBoxes,
-        updated_at: new Date().toISOString(),
-      }], { onConflict: 'user_id' });
-    if (error) console.log("Error saving data: ", error);
+    try {
+      const state = get();
+      const { error } = await supabase
+        .from("user_planner_data")
+        .upsert([{
+          user_id: userId,
+          user_path_selections: state.userPathSelections,
+          user_module_selections: state.userModuleSelections,
+          user_added_boxes: state.userAddedBoxes,
+          updated_at: new Date().toISOString(),
+        }], { onConflict: 'user_id' });
+      if (error) console.log("Error saving data: ", error);
+    } catch (e) {
+      console.error(e);
+    }
   },
 
-  // Pick a path (altPath/dropdown) for a requirement group in a programme
   setPathSelection: (programmeId, groupType, pathId) => {
     set((state) => {
-      // Remove any previous path selection for this prog+groupType
       const filtered = state.userPathSelections.filter(
         sel => !(sel.programmeId === programmeId && sel.groupType === groupType)
       );
@@ -217,10 +212,8 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
   },
 
-  // Select a module in a box
   setBoxModuleSelection: (programmeId, groupType, pathId, boxKey, selectedModule) => {
     set((state) => {
-      // Remove any previous selection for this box
       const filtered = state.userModuleSelections.filter(
         sel =>
           !(
@@ -239,7 +232,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
   },
 
-  // Remove a specific module selection for a box
   removeBoxModuleSelection: (programmeId, groupType, pathId, boxKey) => {
     set((state) => ({
       userModuleSelections: state.userModuleSelections.filter(
@@ -254,9 +246,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }));
   },
 
-  // Recursively remove all module selections under a CourseBox tree
   removeAllModulesUnderPath: (programmeId, groupType, rootPathId, rootBox) => {
-    // Helper: gather all boxKeys under a (possibly nested) CourseBox
     function gatherBoxKeys(box: CourseBox): string[] {
       if (box.kind === "altPath" && Array.isArray(box.pathAlternatives)) {
         return [
@@ -303,14 +293,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }));
   },
 
-  /**
-   * Load programmes and initialize all services
-   */
   loadProgrammes: async (programmes, lookupMaps) => {
     set({ isLoading: true, error: null });
 
     try {
-      // Initialize validation and progress states
       const validationState: ValidationState = {
         maxRuleFulfillment: new Map(),
         strippedTags: new Map(),
@@ -334,7 +320,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         }
       };
 
-      // Initialize services
       const validator = new RealtimeValidator(validationState, lookupMaps, programmes);
       const optimizer = new Optimizer(validator, lookupMaps, programmes);
       const tracker = new FulfilmentTracker(progressState, validator, lookupMaps, programmes);
@@ -350,7 +335,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         programmes,
         programme: programmes[0],
         lookupMaps,
-        validationState,
+        validationState: {
+          ...validationState,
+          moduleToBoxMapping: new Map(validationState.moduleToBoxMapping),
+        },
         progressState,
         validator,
         optimizer,
@@ -361,7 +349,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         isLoading: false,
       });
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading programmes:', error);
       set({
         error: error instanceof Error ? error.message : 'Failed to load programmes',
@@ -370,9 +358,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  /**
-   * Switch to a different programme view
-   */
   switchProgramme: (index) => {
     const { programmes } = get();
     if (index >= 0 && index < programmes.length) {
@@ -380,9 +365,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  /**
-   * Select a module
-   */
   selectModule: async (module, boxKey) => {
     const { validator, optimizer, tracker } = get();
     if (!validator || !optimizer || !tracker) {
@@ -396,7 +378,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
     set({ isLoading: true });
     try {
-      // Perform validation
       const validationResult = await validator.validateSelection(module, boxKey);
       if (!validationResult.isValid) {
         set({
@@ -406,10 +387,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         return validationResult;
       }
 
-      // Check for prerequisite decision
+      // Prerequisite decision
       const prereqDecision = validator.getPrerequisiteDecisions(module);
       if (prereqDecision) {
-        prereqDecision.boxKey = boxKey; // Set the boxKey
+        prereqDecision.boxKey = boxKey;
         set({
           pendingDecision: prereqDecision,
           isLoading: false
@@ -417,7 +398,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         return { ...validationResult, requiresDecision: true };
       }
 
-      // Check if double-count decision is required
+      // Double-count decision
       if (validationResult.requiresDecision && !prereqDecision) {
         const decision = await optimizer.createDoubleCountDecision(module, boxKey);
         if (decision) {
@@ -432,14 +413,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       // Handle prerequisite boxes
       const prereqBoxes = validator.getPrerequisiteBoxes(module);
       if (prereqBoxes && prereqBoxes.length > 0) {
-        console.log(`Auto-adding ${prereqBoxes.length} prerequisite(s) for ${module}`);
-
-        // Store prerequisite boxes
         set(state => ({
           prerequisiteBoxes: new Map(state.prerequisiteBoxes).set(module, prereqBoxes)
         }));
-
-        // Add prerequisites to tracking
         for (const prereqBox of prereqBoxes) {
           if (prereqBox.kind === 'exact' && prereqBox.moduleCode) {
             await validator.updateValidationState(prereqBox.moduleCode, prereqBox.boxKey, 'ADD');
@@ -448,47 +424,40 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         }
       }
 
-      // Update validation state and progress for main module
       await validator.updateValidationState(module, boxKey, 'ADD');
       await tracker.updateProgress(module, 'ADD');
 
-      // Generate and cache module tags
       const tags = await optimizer.generateModuleTags(module);
       set(state => ({
         moduleTagsCache: new Map(state.moduleTagsCache).set(module, tags)
       }));
 
-      // Update UI state
       set(state => ({
-        validationState: { ...state.validationState },
+        validationState: {
+          ...state.validationState,
+          moduleToBoxMapping: new Map(state.validationState.moduleToBoxMapping),
+        },
         progressState: { ...state.progressState },
         warnings: validationResult.warnings,
         isLoading: false
       }));
 
       return validationResult;
-
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error selecting module:', error);
-      const errorResult: ValidationResult = {
+      set({
+        error: 'Failed to select module',
+        isLoading: false
+      });
+      return {
         isValid: false,
         errors: [error instanceof Error ? error.message : 'Unknown error'],
         warnings: [],
         requiresDecision: false
       };
-
-      set({
-        error: 'Failed to select module',
-        isLoading: false
-      });
-
-      return errorResult;
     }
   },
 
-  /**
-   * Handle module removal with prerequisites
-   */
   removeModule: async (module, boxKey) => {
     const { validator, tracker } = get();
 
@@ -497,7 +466,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     set({ isLoading: true });
 
     try {
-      // Remove prerequisite boxes first
       const prereqBoxes = get().prerequisiteBoxes.get(module);
       if (prereqBoxes) {
         for (const prereqBox of prereqBoxes) {
@@ -506,33 +474,29 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
             await tracker.updateProgress(prereqBox.moduleCode, 'REMOVE');
           }
         }
-
-        // Clear prerequisite boxes
         const newPrereqBoxes = new Map(get().prerequisiteBoxes);
         newPrereqBoxes.delete(module);
         set({ prerequisiteBoxes: newPrereqBoxes });
       }
 
-      // Update validation state for main module
       await validator.updateValidationState(module, boxKey, 'REMOVE');
-
-      // Update progress tracking for main module
       await tracker.updateProgress(module, 'REMOVE');
 
-      // Clear cached tags
       const newTagsCache = new Map(get().moduleTagsCache);
       newTagsCache.delete(module);
       set({ moduleTagsCache: newTagsCache });
 
-      // Update UI state
       set(state => ({
-        validationState: { ...state.validationState },
+        validationState: {
+          ...state.validationState,
+          moduleToBoxMapping: new Map(state.validationState.moduleToBoxMapping),
+        },
         progressState: { ...state.progressState },
         warnings: [],
         isLoading: false
       }));
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error removing module:', error);
       set({
         error: 'Failed to remove module',
@@ -541,9 +505,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  /**
-   * //Resolve decisions and update services
-   */
   resolveDecision: async (selectedOptions) => {
     const { pendingDecision, validator, tracker, optimizer } = get();
 
@@ -557,14 +518,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
           pendingDecision.module,
           selectedOptions[0]
         );
-
-        // Store and process resolved prerequisite boxes
         if (resolvedBoxes.length > 0) {
           set(state => ({
             prerequisiteBoxes: new Map(state.prerequisiteBoxes).set(pendingDecision.module, resolvedBoxes)
           }));
-
-          // Add prerequisites to validation state and tracker
           for (const prereqBox of resolvedBoxes) {
             if (prereqBox.kind === 'exact' && prereqBox.moduleCode) {
               await validator.updateValidationState(prereqBox.moduleCode, prereqBox.boxKey, 'ADD');
@@ -572,34 +529,38 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
             }
           }
         }
-
-        // Add the main module
-        await validator.updateValidationState(pendingDecision.module, pendingDecision.boxKey, 'ADD');
-        await tracker.updateProgress(pendingDecision.module, 'ADD');
-
-        console.log(`Resolved ${resolvedBoxes.length} prerequisite boxes for ${pendingDecision.module}`);
+        const tags = await optimizer.generateModuleTags(pendingDecision.module);
+        set(state => ({
+          moduleTagsCache: new Map(state.moduleTagsCache).set(pendingDecision.module, tags)
+        }));
+        set(state => ({
+          validationState: {
+            ...state.validationState,
+            moduleToBoxMapping: new Map(state.validationState.moduleToBoxMapping),
+          },
+          progressState: { ...state.progressState },
+          progressVersion: state.progressVersion + 1,
+          pendingDecision: null,
+          isLoading: false
+        }));
       } else {
-        // Handle double-count decision
         await validator.applyDoubleCountDecision(pendingDecision.module, selectedOptions);
         await validator.updateValidationState(pendingDecision.module, pendingDecision.boxKey, 'ADD');
         await tracker.updateProgress(pendingDecision.module, 'ADD');
+
+        const tags = await optimizer.generateModuleTags(pendingDecision.module);
+        set(state => ({
+          moduleTagsCache: new Map(state.moduleTagsCache).set(pendingDecision.module, tags)
+        }));
+
+        set(state => ({
+          validationState: { ...state.validationState },
+          progressState: { ...state.progressState },
+          pendingDecision: null,
+          isLoading: false
+        }));
       }
-
-      // Generate tags for the newly added module
-      const tags = await optimizer.generateModuleTags(pendingDecision.module);
-      set(state => ({
-        moduleTagsCache: new Map(state.moduleTagsCache).set(pendingDecision.module, tags)
-      }));
-
-      // Clear pending decision
-      set(state => ({
-        validationState: { ...state.validationState },
-        progressState: { ...state.progressState },
-        pendingDecision: null,
-        isLoading: false
-      }));
-
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error resolving decision:', error);
       set({
         error: 'Failed to resolve decision',
@@ -608,16 +569,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  /**
-   * Cancel a pending decision
-   */
   cancelDecision: () => {
     set({ pendingDecision: null });
   },
 
-  /**
-   * Get detailed module information
-   */
   getModuleInfo: async (module) => {
     try {
       return await dbService.getModuleDetails(module);
@@ -627,26 +582,16 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  /**
-   * Get module tags from optimizer
-   */
   getModuleTags: async (module) => {
     const { optimizer, moduleTagsCache } = get();
-
-    // Check cache first
     const cached = moduleTagsCache.get(module);
     if (cached) return cached;
-
     if (!optimizer) return [];
-
     try {
       const tags = await optimizer.generateModuleTags(module);
-
-      // Cache the result
       set(state => ({
         moduleTagsCache: new Map(state.moduleTagsCache).set(module, tags)
       }));
-
       return tags;
     } catch (error) {
       console.error('Error getting module tags:', error);
@@ -654,20 +599,13 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  /**
-   * Get prerequisite boxes
-   */
   getPrerequisiteBoxes: (module) => {
     return get().prerequisiteBoxes.get(module) || [];
   },
 
-  /**
-   * Use optimizer for filtered options
-   */
   getFilteredOptions: async (boxOptions) => {
     const { optimizer } = get();
     if (!optimizer) return [];
-
     try {
       return await optimizer.getFilteredDropdownOptions(boxOptions);
     } catch (error) {
@@ -676,13 +614,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  /**
-   * Use tracker for progress summary
-   */
   getProgressSummary: async (programmeId) => {
     const { tracker } = get();
     if (!tracker) return null;
-
     try {
       return await tracker.getDetailedProgressSummary(programmeId);
     } catch (error) {
@@ -691,13 +625,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  /**
-   * Use tracker for requirement tree
-   */
   getRequirementTree: async (programmeId) => {
     const { tracker } = get();
     if (!tracker) return [];
-
     try {
       return await tracker.buildRequirementTree(programmeId);
     } catch (error) {
@@ -706,9 +636,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  /**
-   * Clear all caches
-   */
   clearCaches: () => {
     dbService.clearCache();
     set({
@@ -717,18 +644,12 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     });
   },
 
-  /**
-   * Refresh data and caches
-   */
   refreshData: async () => {
     const { programmes, lookupMaps } = get();
     get().clearCaches();
     await get().loadProgrammes(programmes, lookupMaps);
   },
 
-  /**
-   * Get system statistics for debugging
-   */
   getSystemStats: () => {
     const {
       validator,
@@ -742,9 +663,9 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     } = get();
 
     const dbStats = dbService.getCacheStats();
-    const validationStats = validator?.getValidationStats();
-    const optimizerStats = optimizer?.getOptimizerStats();
-    const trackerStats = tracker?.getTrackerStats();
+    const validationStats = validator?.getValidationStats?.();
+    const optimizerStats = optimizer?.getOptimizerStats?.();
+    const trackerStats = tracker?.getTrackerStats?.();
 
     return {
       database: dbStats,

@@ -321,6 +321,21 @@ export class FEDatabaseQueryService {
     }
   }
 
+  async getPathId(programmeId: string, rawKey: string): Promise<string | null> {
+    const { data, error } = await supabase
+      .from('programme_requirement_paths')
+      .select('id')
+      .eq('programme_id', programmeId)
+      .eq('path_key', rawKey)
+      .single();
+
+    if (error) {
+      console.error('[getPathId] ', error);
+      return null;
+    }
+    return data?.id ?? null;
+  }
+
   // PREREQUISITE QUERIES
 
   /**
