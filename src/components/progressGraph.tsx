@@ -8,7 +8,7 @@ interface ProgressSummary {
 }
 
 export default function ProgressGraph() {
-  const { programme, getProgressSummary } = usePlannerStore();
+  const { programme, getProgressSummary, progressVersion } = usePlannerStore();
   const [summary, setSummary] = useState<ProgressSummary>({ requiredUnits: 0, fulfilledUnits: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +40,7 @@ export default function ProgressGraph() {
     return () => {
       active = false;
     };
-  }, [programme.programmeId, getProgressSummary]);
+  }, [programme.programmeId, getProgressSummary, progressVersion]);
 
   if (loading) {
     return (
@@ -95,9 +95,9 @@ export default function ProgressGraph() {
       </Box>
       <Box sx={{ mt: 1 }}>
         <Typography variant="body2">
-          {fulfilledUnits}/{requiredUnits} MC fulfilled
-        </Typography>
-      </Box>
+        {fulfilledUnits}/{requiredUnits} MC fulfilled
+      </Typography>
+    </Box>
     </Box>
   );
 }

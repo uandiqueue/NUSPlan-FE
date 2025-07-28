@@ -21,6 +21,7 @@ export interface PlannerState {
   selectedProgramIndex: number;
 
   // Validation and UI state
+  progressVersion: number;
   validationState: ValidationState;
   progressState: ProgressState;
   pendingDecision: PendingDecision | null;
@@ -68,6 +69,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
   lookupMaps: {} as LookupMaps,
   selectedProgramIndex: 0,
   
+  progressVersion: 0,
   validationState: {
     maxRuleFulfillment: new Map(),
     strippedTags: new Map(),
@@ -152,7 +154,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         programmes,
         programme: programmes[0],
         lookupMaps,
-        validationState,
+        validationState: {
+          ...validationState,
+          moduleToBoxMapping: new Map(validationState.moduleToBoxMapping),
+        },
         progressState,
         validator,
         optimizer,
@@ -254,6 +259,14 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
           await validator.updateValidationState(module, boxKey, 'ADD');
           await tracker.updateProgress(module, 'ADD');
 
+          const currentProgressState = get().progressState;
+          const newProgressState = {
+            ...currentProgressState,
+            programmeProgress: new Map(currentProgressState.programmeProgress),
+            pathFulfillment: new Map(currentProgressState.pathFulfillment),
+            pathModules: new Map(currentProgressState.pathModules),
+          };
+
           // Generate and cache module tags
           const tags = await optimizer.generateModuleTags(module);
           set(state => ({
@@ -262,8 +275,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
           // Update UI state
           set(state => ({
-              validationState: { ...state.validationState },
-              progressState: { ...state.progressState },
+              validationState: {
+                  ...state.validationState,
+                  moduleToBoxMapping: new Map(state.validationState.moduleToBoxMapping),
+              },
+              progressState: newProgressState,
               warnings: validationResult.warnings,
               isLoading: false
           }));
@@ -328,7 +344,10 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       
       // Update UI state
       set(state => ({
-        validationState: { ...state.validationState },
+        validationState: {
+          ...state.validationState,
+          moduleToBoxMapping: new Map(state.validationState.moduleToBoxMapping),
+        },
         progressState: { ...state.progressState },
         warnings: [],
         isLoading: false
@@ -395,8 +414,12 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
           
           // Clear pending decision
           set(state => ({
-              validationState: { ...state.validationState },
+              validationState: {
+                  ...state.validationState,
+                  moduleToBoxMapping: new Map(state.validationState.moduleToBoxMapping),
+              },
               progressState: { ...state.progressState },
+              progressVersion: state.progressVersion + 1,
               pendingDecision: null,
               isLoading: false
           }));
