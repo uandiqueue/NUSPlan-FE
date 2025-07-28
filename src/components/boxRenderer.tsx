@@ -1,7 +1,6 @@
 import type { CourseBox, PathInfo } from '../types/shared-types';
-import EnhancedModuleSelector from './ModuleSelector';
+import ModuleSelector from './ModuleSelector';
 import { usePlannerStore } from '../store/usePlannerStore';
-import { ModuleCode } from '../types/nusmods-types';
 
 interface BoxRendererProps {
   box: CourseBox;
@@ -15,16 +14,18 @@ function BoxRenderer({
   requirementKey,
   sectionPaths,
   sectionBoxes,
-}: BoxRendererProps) {
+  renderedBoxKeys = [],
+}: BoxRendererProps & { renderedBoxKeys?: string[] }) {
   const { programme } = usePlannerStore();
 
   return (
-    <EnhancedModuleSelector
+    <ModuleSelector
       courseBox={box}
       programmeId={programme.programmeId}
       sectionType={requirementKey}
       sectionPaths={sectionPaths}
       sectionBoxes={sectionBoxes}
+      renderedBoxKeys={renderedBoxKeys}
     />
   );
 }

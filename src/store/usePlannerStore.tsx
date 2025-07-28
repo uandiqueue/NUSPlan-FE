@@ -14,7 +14,7 @@ import { FulfilmentTracker } from '../services/feFulfilmentTracker';
 import { dbService } from '../services/dbQuery';
 import { supabase } from '../config/supabase';
 
-// Data structures
+// Data structures to save to database
 export interface UserPathSelection {
   programmeId: string;
   groupType: RequirementGroupType;
@@ -38,7 +38,6 @@ export interface UserAddedBox {
 }
 export type UserAddedBoxes = UserAddedBox[];
 
-// Zustand store
 export interface PlannerState {
   // Core data
   programmes: ProgrammePayload[];
@@ -95,12 +94,13 @@ export interface PlannerState {
 
   loadUserPlannerData: (userId: string) => Promise<void>;
   saveUserPlannerData: (userId: string) => Promise<void>;
+  clearPlannerData: () => void;
 
   // Actions
   loadProgrammes: (programmes: ProgrammePayload[], lookupMaps: LookupMaps) => Promise<void>;
   switchProgramme: (index: number) => void;
-  selectModule: (module: ModuleCode, boxKey: string) => Promise<ValidationResult>;
-  removeModule: (module: ModuleCode, boxKey: string) => Promise<void>;
+  selectModule: (programmeId: string, groupType: RequirementGroupType, pathId: string, module: ModuleCode, boxKey: string) => Promise<ValidationResult>;
+  removeModule: (programmeId: string, groupType: RequirementGroupType, pathId: string, boxKey: string) => Promise<void>;
   resolveDecision: (selectedOptions: string[]) => Promise<void>;
   cancelDecision: () => void;
 
@@ -177,7 +177,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
           userAddedBoxes: data.user_added_boxes ?? []
         });
       }
-      if (error) console.log("Error getting data from database: ", error);
+      if (error && error.code !== "PGRST116") console.log("Error getting data from database: ", error);
     } catch (e) {
       console.error(e);
     }
@@ -246,6 +246,14 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }));
   },
 
+  clearPlannerData: () => {
+    set({
+      userModuleSelections: [],
+      userAddedBoxes: [],
+      userPathSelections: [],
+    });
+  },
+
   removeAllModulesUnderPath: (programmeId, groupType, rootPathId, rootBox) => {
     function gatherBoxKeys(box: CourseBox): string[] {
       if (box.kind === "altPath" && Array.isArray(box.pathAlternatives)) {
@@ -307,7 +315,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         selectedModules: new Set(),
         moduleToBoxMapping: new Map()
       };
-
       const progressState: ProgressState = {
         pathFulfillment: new Map(),
         pathModules: new Map(),
@@ -323,6 +330,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       const validator = new RealtimeValidator(validationState, lookupMaps, programmes);
       const optimizer = new Optimizer(validator, lookupMaps, programmes);
       const tracker = new FulfilmentTracker(progressState, validator, lookupMaps, programmes);
+
       for (const programme of programmes) {
         const preselected = programme.preselectedModules || [];
         for (const mod of preselected) {
@@ -330,6 +338,27 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
           await validator.updateValidationState(mod, '', 'ADD');
         }
       }
+
+      const exactBoxes = programmes[0].sections
+        .flatMap(sec => sec.courseBoxes)
+        .filter((box): box is Extract<CourseBox, { kind: 'exact' }> => box.kind === 'exact');
+
+      for (const box of exactBoxes) {
+        await validator.updateValidationState(box.moduleCode, box.boxKey, 'ADD');
+        await tracker.updateProgress(box.moduleCode, 'ADD');
+      }
+
+      const initialSelections: UserModuleSelection[] = exactBoxes.map(box => ({
+        programmeId: programmes[0].programmeId,
+        groupType: programmes[0].sections.find(s => s.courseBoxes.includes(box))!.groupType,
+        pathId: box.pathId,
+        boxKey: box.boxKey,
+        selectedModule: box.moduleCode
+      }));
+
+      set(state => ({
+        userModuleSelections: [...state.userModuleSelections, ...initialSelections]
+      }));
 
       set({
         programmes,
@@ -348,7 +377,6 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
         moduleTagsCache: new Map(),
         isLoading: false,
       });
-
     } catch (error: any) {
       console.error('Error loading programmes:', error);
       set({
@@ -358,6 +386,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
+
   switchProgramme: (index) => {
     const { programmes } = get();
     if (index >= 0 && index < programmes.length) {
@@ -365,7 +394,13 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     }
   },
 
-  selectModule: async (module, boxKey) => {
+  selectModule: async (
+    programmeId: string,
+    groupType: RequirementGroupType,
+    pathId: string,
+    module: ModuleCode,
+    boxKey: string
+  ): Promise<ValidationResult> => {
     const { validator, optimizer, tracker } = get();
     if (!validator || !optimizer || !tracker) {
       return {
@@ -380,52 +415,54 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
     try {
       const validationResult = await validator.validateSelection(module, boxKey);
       if (!validationResult.isValid) {
-        set({
-          warnings: validationResult.errors,
-          isLoading: false
-        });
+        set({ warnings: validationResult.errors, isLoading: false });
         return validationResult;
       }
 
-      // Prerequisite decision
       const prereqDecision = validator.getPrerequisiteDecisions(module);
       if (prereqDecision) {
         prereqDecision.boxKey = boxKey;
-        set({
-          pendingDecision: prereqDecision,
-          isLoading: false
-        });
+        set({ pendingDecision: prereqDecision, isLoading: false });
         return { ...validationResult, requiresDecision: true };
       }
 
-      // Double-count decision
       if (validationResult.requiresDecision && !prereqDecision) {
         const decision = await optimizer.createDoubleCountDecision(module, boxKey);
         if (decision) {
-          set({
-            pendingDecision: decision,
-            isLoading: false
-          });
+          set({ pendingDecision: decision, isLoading: false });
           return validationResult;
         }
       }
 
-      // Handle prerequisite boxes
-      const prereqBoxes = validator.getPrerequisiteBoxes(module);
-      if (prereqBoxes && prereqBoxes.length > 0) {
+      const prereqBoxes = validator.getPrerequisiteBoxes(module) ?? [];
+      if (prereqBoxes.length > 0) {
         set(state => ({
           prerequisiteBoxes: new Map(state.prerequisiteBoxes).set(module, prereqBoxes)
         }));
-        for (const prereqBox of prereqBoxes) {
-          if (prereqBox.kind === 'exact' && prereqBox.moduleCode) {
-            await validator.updateValidationState(prereqBox.moduleCode, prereqBox.boxKey, 'ADD');
-            await tracker.updateProgress(prereqBox.moduleCode, 'ADD');
+        for (const p of prereqBoxes) {
+          if (p.kind === 'exact' && p.moduleCode) {
+            await validator.updateValidationState(p.moduleCode, p.boxKey, 'ADD');
+            await tracker.updateProgress(p.moduleCode, 'ADD');
           }
         }
       }
 
       await validator.updateValidationState(module, boxKey, 'ADD');
       await tracker.updateProgress(module, 'ADD');
+
+      get().setBoxModuleSelection(programmeId, groupType, pathId, boxKey, module);
+
+      for (const p of prereqBoxes) {
+        if (p.kind === 'exact' && p.moduleCode) {
+          get().setBoxModuleSelection(
+            programmeId,
+            groupType,
+            p.pathId,
+            p.boxKey,
+            p.moduleCode
+          );
+        }
+      }
 
       const tags = await optimizer.generateModuleTags(module);
       set(state => ({
@@ -435,7 +472,7 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       set(state => ({
         validationState: {
           ...state.validationState,
-          moduleToBoxMapping: new Map(state.validationState.moduleToBoxMapping),
+          moduleToBoxMapping: new Map(state.validationState.moduleToBoxMapping)
         },
         progressState: { ...state.progressState },
         warnings: validationResult.warnings,
@@ -445,63 +482,57 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       return validationResult;
     } catch (error: any) {
       console.error('Error selecting module:', error);
-      set({
-        error: 'Failed to select module',
-        isLoading: false
-      });
+      set({ error: 'Failed to select module', isLoading: false });
       return {
         isValid: false,
-        errors: [error instanceof Error ? error.message : 'Unknown error'],
+        errors: [error.message || 'Unknown error'],
         warnings: [],
         requiresDecision: false
       };
     }
   },
 
-  removeModule: async (module, boxKey) => {
-    const { validator, tracker } = get();
-
+  removeModule: async (
+    programmeId,
+    groupType,
+    pathId,
+    boxKey
+  ) => {
+    const { validator, tracker, userModuleSelections } = get();
     if (!validator || !tracker) return;
 
     set({ isLoading: true });
-
     try {
-      const prereqBoxes = get().prerequisiteBoxes.get(module);
-      if (prereqBoxes) {
-        for (const prereqBox of prereqBoxes) {
-          if (prereqBox.kind === 'exact' && prereqBox.moduleCode) {
-            await validator.updateValidationState(prereqBox.moduleCode, prereqBox.boxKey, 'REMOVE');
-            await tracker.updateProgress(prereqBox.moduleCode, 'REMOVE');
+      const sel = userModuleSelections.find(s =>
+        s.programmeId === programmeId &&
+        s.groupType === groupType &&
+        s.pathId === pathId &&
+        s.boxKey === boxKey
+      );
+      if (sel) {
+        const prereqs = get().prerequisiteBoxes.get(sel.selectedModule) || [];
+        for (const p of prereqs) {
+          if (p.kind === 'exact' && p.moduleCode) {
+            await validator.updateValidationState(p.moduleCode, p.boxKey, 'REMOVE');
+            await tracker.updateProgress(p.moduleCode, 'REMOVE');
           }
         }
-        const newPrereqBoxes = new Map(get().prerequisiteBoxes);
-        newPrereqBoxes.delete(module);
-        set({ prerequisiteBoxes: newPrereqBoxes });
+        if (prereqs.length) {
+          const m = new Map(get().prerequisiteBoxes);
+          m.delete(sel.selectedModule);
+          set({ prerequisiteBoxes: m });
+        }
+
+        await validator.updateValidationState(sel.selectedModule, boxKey, 'REMOVE');
+        await tracker.updateProgress(sel.selectedModule, 'REMOVE');
       }
 
-      await validator.updateValidationState(module, boxKey, 'REMOVE');
-      await tracker.updateProgress(module, 'REMOVE');
+      get().removeBoxModuleSelection(programmeId, groupType, pathId, boxKey);
 
-      const newTagsCache = new Map(get().moduleTagsCache);
-      newTagsCache.delete(module);
-      set({ moduleTagsCache: newTagsCache });
-
-      set(state => ({
-        validationState: {
-          ...state.validationState,
-          moduleToBoxMapping: new Map(state.validationState.moduleToBoxMapping),
-        },
-        progressState: { ...state.progressState },
-        warnings: [],
-        isLoading: false
-      }));
-
-    } catch (error: any) {
-      console.error('Error removing module:', error);
-      set({
-        error: 'Failed to remove module',
-        isLoading: false
-      });
+      set({ isLoading: false });
+    } catch (e: any) {
+      console.error(e);
+      set({ error: 'Failed to remove module', isLoading: false });
     }
   },
 

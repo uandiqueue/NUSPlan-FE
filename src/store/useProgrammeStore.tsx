@@ -63,14 +63,12 @@ export const useMajorStore = create<MajorStore>()((set, get) => ({
     }
 
     if (data) {
-      // Populate your Zustand store with these values:
       set({
         primaryMajor: data.primary_major,
         secondaryMajor: data.secondary_major,
         minors: data.minors || [],
       });
     } else {
-      // No saved selections yet. (Fresh user)
       set({
         primaryMajor: null,
         secondaryMajor: null,

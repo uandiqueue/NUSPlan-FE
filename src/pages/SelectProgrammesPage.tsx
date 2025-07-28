@@ -9,7 +9,6 @@ import InputMinor from "../components/InputMinor";
 import AddSecondary from "../components/AddSecondary";
 import AddMinor from "../components/AddMinor";
 import { generateAP } from "../api/apGeneration";
-import PlannerPage from "./PlannerPage";
 import { usePlannerStore } from "../store/usePlannerStore";
 import { beError, beErrorHandler } from "../services/errorHandler/be-error";
 import { FEDatabaseQueryService } from "../services/dbQuery";
@@ -51,10 +50,9 @@ export default function SelectProgrammesPage() {
     userLoggedIn
   } = useUIStore();
 
-  const { loadProgrammes } = usePlannerStore();
+  const { loadProgrammes, clearPlannerData, saveUserPlannerData } = usePlannerStore();
   const dbService = FEDatabaseQueryService.getInstance();
 
-  /* LOCAL STATE */
   const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -75,7 +73,6 @@ export default function SelectProgrammesPage() {
 
   /* EVENT HANDLERS */
   const handleGenerateCourses = async () => {
-    // Basic validation
     const selectedIds = getAllSelectedIds();
 
     for (const m of selectedIds) {
@@ -97,27 +94,26 @@ export default function SelectProgrammesPage() {
       return;
     }
 
+    clearPlannerData();
+
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       await saveUserProgrammeSelections({
         userId: user.id,
         primaryMajor,
         secondaryMajor,
-         minors: minors.filter((m): m is ProgrammeSelection => m !== null)
+        minors: minors.filter((m): m is ProgrammeSelection => m !== null)
       });
     }
 
-
-    // Build request body
     const programmeIds = selectedIds;
 
-    // Initialize local cache (Phase 1 without lookup)
     await dbService.initializeCache(programmeIds);
 
     // Fetch backend
     try {
       setLoading(true);
-      const req: ProcessProgrammesRequest = { programmeIds }; // to account for userId in the future
+      const req: ProcessProgrammesRequest = { programmeIds };
       const res: BackendResponse<ProcessProgrammesResponse> = await generateAP(req);
       const globalLookup = res.data.lookup;
       const programmes: ProgrammePayload[] = res.data.programmes.map(p => ({
@@ -125,15 +121,12 @@ export default function SelectProgrammesPage() {
         lookupMaps: globalLookup
       }));
 
-      console.log("ProcessProgrammesResponse:", res); // FOR DEBUGGING PURPOSES
-      console.log("Backend payloads:", programmes); // FOR DEBUGGING PURPOSES
-
       if (programmes.length > 0) {
         programmes[0].sections.push({
           groupType: 'unrestrictedElectives',
           displayLabel: 'Unrestricted Electives',
           paths: [],
-          courseBoxes: [], // Starts empty
+          courseBoxes: [],
           hidden: [],
         });
       }
@@ -143,11 +136,13 @@ export default function SelectProgrammesPage() {
         return;
       }
 
-      // Load global planner store
+      if (user) {
+        await saveUserPlannerData(user.id);
+      }
+
       loadProgrammes(programmes, res.data.lookup);
       setLoaded(true);
 
-      // Finish caching (Phase 2 with lookup)
       dbService
         .initializeCache(programmeIds, res.data.lookup)
         .catch((error) => console.error('Cache phase 2 failed', error));
@@ -171,7 +166,6 @@ export default function SelectProgrammesPage() {
     return list.length ? list.map(p => p.name).join(", ") : "None available";
   }
 
-  /* RENDER */
   // Choose Major page
   return (
     <>
