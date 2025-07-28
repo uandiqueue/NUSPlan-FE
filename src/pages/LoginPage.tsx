@@ -1,7 +1,6 @@
 import { supabase } from "../config/supabase";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from '@supabase/auth-ui-shared'
-import logo from "../assets/nusplan-logo.png";
 
 function LoginPage() {
   return (
@@ -13,16 +12,6 @@ function LoginPage() {
         background: "#fff"
       }}
     >
-      <img
-        src={logo}
-        alt="NUSPlan Logo"
-        style={{
-          position: "absolute",
-          top: 24,
-          left: 24,
-          height: 96
-        }}
-      />
       <div
         style={{
           display: "flex",

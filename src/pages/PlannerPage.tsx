@@ -1,31 +1,17 @@
-'use client';
-
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
-  Box,
-  Button,
-  Typography,
-  Divider,
-  useTheme,
-  useMediaQuery,
-  Alert,
-  IconButton,
-  Tabs,
-  Tab,
-  LinearProgress
+  Box, Button, Typography, Divider, useTheme, useMediaQuery, Tabs, Tab, LinearProgress,
 } from '@mui/material';
-import CloseIcon from '@mui/icons-material/Close';
-
 import { RequirementBlock } from '../components/requirementBlock';
 import ProgressGraph from '../components/progressGraph';
 import { usePlannerStore } from '../store/usePlannerStore';
 import type { ModuleCode } from '../types/nusmods-types';
-
+import { CourseBox, RequirementGroupType, ProgrammeSection } from '../types/shared-types';
 import { dbService } from '../services/dbQuery';
+import { supabase } from '../config/supabase';
+import type { User } from '@supabase/supabase-js';
 
-export interface PlannerPageProps {
-  onBack: () => void; // To go back to the major selection page
-}
+export interface PlannerPageProps { onBack: () => void; }
 
 export default function PlannerPage({ onBack }: PlannerPageProps) {
   const {
@@ -33,25 +19,18 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
     programme,
     selectedProgramIndex,
     switchProgramme,
-    warnings,
+    userAddedBoxes,
+    loadUserPlannerData,
+    saveUserPlannerData,
   } = usePlannerStore();
 
+  const [user, setUser] = useState<User | null>(null);
   const theme = useTheme();
   const upLg = useMediaQuery(theme.breakpoints.up('lg'));
-
-
-  // Local UI state
-  const [hideWarn, setHideWarn] = useState(false);
   const [isPreloading, setIsPreloading] = useState(false);
   const [preloadError, setPreloadError] = useState<string | null>(null);
   const didWarmCacheRef = useRef(false);
 
-  // Re-show the warning banner whenever warnings change
-  useEffect(() => {
-    if (warnings.length > 0) setHideWarn(false);
-  }, [warnings]);
-
-  // Collect ALL module codes across all selected payloads (unique)
   const allModuleCodes: ModuleCode[] = useMemo(() => {
     const set = new Set<ModuleCode>();
     for (const p of programmes ?? []) {
@@ -61,37 +40,60 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
     return Array.from(set);
   }, [programmes]);
 
-  // Warm caches once when payloads arrive
   useEffect(() => {
     if (!programmes.length || didWarmCacheRef.current) return;
-
-    // Only warm if we actually have module codes
     if (allModuleCodes.length === 0) return;
-
     let cancelled = false;
     (async () => {
       try {
         setIsPreloading(true);
         setPreloadError(null);
-        // Warm all three caches (modules, prerequisites, preclusions)
         await dbService.getModulesDetails(allModuleCodes);
         if (!cancelled) didWarmCacheRef.current = true;
       } catch (err: any) {
-        if (!cancelled) {
-          console.error('Cache preload failed:', err);
-          setPreloadError('Preloading module data failed. You can still proceed; data will load on demand.');
-        }
+        if (!cancelled) setPreloadError('Preloading module data failed.');
       } finally {
         if (!cancelled) setIsPreloading(false);
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [programmes, allModuleCodes]);
 
-  // Provider not mounted yet / still loading backend payload
+  useEffect(() => {
+    async function fetchUser() {
+      const { data } = await supabase.auth.getUser();
+      setUser(data?.user || null);
+
+      // 2. If user exists, load their planner data from Supabase
+      if (data?.user) {
+        loadUserPlannerData(data.user.id);
+      }
+    }
+    fetchUser();
+
+    // Listen to login/logout events
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+      if (session?.user) {
+        loadUserPlannerData(session.user.id);
+      }
+    });
+    return () => {
+      listener?.subscription.unsubscribe();
+    };
+  }, [loadUserPlannerData]);
+
+  function getVisibleBoxes(sec: ProgrammeSection): CourseBox[] {
+    const payloadBoxes = sec.courseBoxes;
+    const addedBoxes = userAddedBoxes
+      .filter(b =>
+        b.programmeId === programme.programmeId &&
+        b.groupType === sec.groupType
+      )
+      .map(b => b.box);
+    return [...payloadBoxes, ...addedBoxes];
+  }
+
   if (!programmes.length || !programme) {
     return (
       <Box p={4}>
@@ -103,41 +105,15 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
 
   return (
     <Box p={4}>
-      {/* Back button to major selection page */}
       <Button variant="text" size="small" onClick={onBack} sx={{ mb: 2 }}>
         ← Back to programme selection
       </Button>
-
-      {/* Optional preload status */}
-      {isPreloading && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Warming caches (modules, prerequisites, preclusions)… This runs once and speeds up lookups.
-        </Alert>
-      )}
-      {preloadError && (
-        <Alert severity="warning" sx={{ mb: 2 }}>
-          {preloadError}
-        </Alert>
-      )}
-
-      {/* Warning banner from validator/logic */}
-      {!hideWarn && warnings.length > 0 && (
-        <Alert
-          severity="warning"
-          sx={{ mb: 3 }}
-          action={
-            <IconButton size="small" onClick={() => setHideWarn(true)}>
-              <CloseIcon fontSize="inherit" />
-            </IconButton>
-          }
-        >
-          {warnings.map((w, i) => (
-            <div key={i}>{w}</div>
-          ))}
-        </Alert>
-      )}
-
-      {/* Tabs for each selected program */}
+      <Button
+        disabled={!user}
+        onClick={() => user && saveUserPlannerData(user.id)}
+      >
+        Save Data
+      </Button>
       <Tabs
         value={selectedProgramIndex}
         onChange={(_, value) => switchProgramme(value)}
@@ -152,28 +128,25 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
         ))}
       </Tabs>
 
-      {/* Main grid layout: left = program requirements, right = progress */}
       <Box display="grid" gap={4} gridTemplateColumns={upLg ? '2fr 1fr' : '1fr'}>
-        {/* Requirement sections */}
-        <Box
-          border="1px solid #ccc"
-          borderRadius={2}
-          p={3}
+        <Box border="1px solid #ccc" borderRadius={2} p={3}
           sx={{
             maxHeight: upLg ? 'calc(100vh - 150px)' : 'none',
             overflowY: upLg ? 'auto' : 'visible',
-          }}
-        >
-          {programme.sections.map((sec: any) => (
-            <RequirementBlock key={sec.requirementKey} block={sec} programmeId={programme.programmeId}/>
-          ))}
+          }}>
+          {programme.sections.map((sec) => {
+            const visibleBoxes = getVisibleBoxes(sec);
+            return (
+              <RequirementBlock
+                key={sec.groupType}
+                block={{ ...sec, courseBoxes: visibleBoxes }}
+                programmeId={programme.programmeId}
+              />
+            );
+          })}
         </Box>
-
-        {/* Progress sidebar */}
         <Box position="sticky" top={16}>
-          <Typography variant="h6" gutterBottom>
-            Overall Progress
-          </Typography>
+          <Typography variant="h6" gutterBottom>Overall Progress</Typography>
           <Divider sx={{ mb: 2 }} />
           <ProgressGraph />
         </Box>

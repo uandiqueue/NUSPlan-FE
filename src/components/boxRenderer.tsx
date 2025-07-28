@@ -1,4 +1,3 @@
-// src/components/BoxRenderer.tsx
 import type { CourseBox, PathInfo } from '../types/shared-types';
 import EnhancedModuleSelector from './ModuleSelector';
 import { usePlannerStore } from '../store/usePlannerStore';

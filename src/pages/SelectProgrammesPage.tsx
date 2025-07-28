@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Box, Typography, Button, Snackbar, CircularProgress, Alert } from "@mui/material";
+import { useNavigate } from "react-router-dom";
 import { useMajorStore } from "../store/useProgrammeStore";
 import { useUIStore } from "../store/useUIStore";
 import InputPrimaryMajor from "../components/InputPrimaryMajor";
@@ -18,10 +19,12 @@ import {
   ProcessProgrammesRequest,
   ProcessProgrammesResponse
 } from "../types/shared-types";
-import { Programme } from "../types/frontend-types";
-import Header from "../components/Header";
+import { Programme, ProgrammeSelection } from "../types/frontend-types";
+import { supabase } from "../config/supabase";
 
 export default function SelectProgrammesPage() {
+  const navigate = useNavigate();
+
   // STORES
   const {
     primaryMajor,
@@ -36,6 +39,8 @@ export default function SelectProgrammesPage() {
     availableMajors,
     availableSecondMajors,
     availableMinors,
+    loadUserProgrammeSelections,
+    saveUserProgrammeSelections
   } = useMajorStore();
 
   const {
@@ -43,6 +48,7 @@ export default function SelectProgrammesPage() {
     setShowSecondarySelect,
     errorMessage,
     setErrorMessage,
+    userLoggedIn
   } = useUIStore();
 
   const { loadProgrammes } = usePlannerStore();
@@ -56,6 +62,16 @@ export default function SelectProgrammesPage() {
   useEffect(() => {
     fetchProgrammes();
   }, [fetchProgrammes]);
+
+  useEffect(() => {
+    const getUserAndSelections = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        await loadUserProgrammeSelections(user.id);
+      }
+    };
+    getUserAndSelections();
+  }, []);
 
   /* EVENT HANDLERS */
   const handleGenerateCourses = async () => {
@@ -81,6 +97,17 @@ export default function SelectProgrammesPage() {
       return;
     }
 
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await saveUserProgrammeSelections({
+        userId: user.id,
+        primaryMajor,
+        secondaryMajor,
+         minors: minors.filter((m): m is ProgrammeSelection => m !== null)
+      });
+    }
+
+
     // Build request body
     const programmeIds = selectedIds;
 
@@ -100,8 +127,6 @@ export default function SelectProgrammesPage() {
 
       console.log("ProcessProgrammesResponse:", res); // FOR DEBUGGING PURPOSES
       console.log("Backend payloads:", programmes); // FOR DEBUGGING PURPOSES
-      //exportJson(payloads, 'payloads.json'); // DEBUG
-
 
       if (programmes.length > 0) {
         programmes[0].sections.push({
@@ -138,8 +163,7 @@ export default function SelectProgrammesPage() {
 
   const handleBack = () => {
     setLoaded(false);
-    resetAll();
-    setShowSecondarySelect(false);
+
   };
 
   // Helper function to display the major restrictions in the alert banner
@@ -148,27 +172,19 @@ export default function SelectProgrammesPage() {
   }
 
   /* RENDER */
-  // Planner page
-  if (loaded) {
-    return <PlannerPage onBack={handleBack} />;
-  }
-
   // Choose Major page
   return (
     <>
-      <Header />
-
-      <Box p={4} maxWidth={650} mx="auto">
-
+      <Box p={4} maxWidth={650} mx="auto" position="relative">
         {/* Information banner */}
         <Alert severity="info" sx={{ mb: 3 }}>
-          Sign in to save your data.<br />
+          Choose the programmes you are interested in. Click on "Generate Courses" button, then "Planner" button to go to the next page.<br />
           Please take note of the following restrictions:<br />
           Possible choices for Primary Major: {formatNames(availableMajors)}.<br />
           Possible choices for Secondary Major: {formatNames(availableSecondMajors)}.<br />
           Possible choices for Minors: {formatNames(availableMinors)}<br />
+          You can sign in to save your data.<br />
         </Alert>
-
 
         {/* Selectors */}
         <InputPrimaryMajor />
@@ -217,6 +233,30 @@ export default function SelectProgrammesPage() {
             message={errorMessage}
           />
         )}
+
+        {/* Planner > button, fixed to bottom right */}
+        <Box
+          position="fixed"
+          bottom={24}
+          right={24}
+          zIndex={1300}
+        >
+          <Button
+            variant="contained"
+            color="primary"
+            size="large"
+            onClick={() => navigate("/planner")}
+            sx={{
+              fontWeight: 700,
+              fontSize: "1.2rem",
+              px: 4,
+              py: 1.5,
+              boxShadow: 3,
+            }}
+          >
+            Planner &gt;
+          </Button>
+        </Box>
       </Box>
     </>
   );

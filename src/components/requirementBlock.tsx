@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ProgrammeSection, CourseBox, LookupMaps } from '../types/shared-types';
+import { ProgrammeSection, CourseBox, RequirementGroupType } from '../types/shared-types';
 import { ModuleCode } from '../types/nusmods-types';
 import { Box, Typography, Button, IconButton } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -15,24 +15,41 @@ export function RequirementBlock({
   programmeId: string,
 }) {
   const isUE = block.groupType === 'unrestrictedElectives';
+  const groupType = block.groupType as RequirementGroupType;
 
-  const [addedBoxes, setAddedBoxes] = useState<CourseBox[]>([]);
-  const [ueBoxes, setUeBoxes] = useState<CourseBox[]>([]);
+  const {
+    lookupMaps,
+    userAddedBoxes,
+    addUserBox,
+    removeUserBox,
+    removeBoxModuleSelection,
+    userModuleSelections
+  } = usePlannerStore();
+
   const [ueModuleOptions, setUeModuleOptions] = useState<ModuleCode[]>([]);
-  const {lookupMaps} = usePlannerStore();
-
-  // Load all module codes for UE
   useEffect(() => {
-    if (!lookupMaps) {
-      console.error('lookupMaps is missing in RequirementBlock for section', block);
-      return;
-    }
+    if (!lookupMaps) return;
     async function loadUEOptions() {
       const allModuleCodes = dbService.extractAllModuleCodes(lookupMaps);
       setUeModuleOptions(Array.from(allModuleCodes));
     }
     loadUEOptions();
   }, [lookupMaps, isUE]);
+
+  // User added boxes for this section
+  const addedBoxes = userAddedBoxes
+    .filter(b => b.programmeId === programmeId && b.groupType === groupType)
+    .map(b => b.box);
+
+  // Combine default and added boxes
+  const visibleBoxes = [
+    ...block.courseBoxes,
+    ...addedBoxes
+  ];
+
+  // Helper function
+  const isDeletableBox = (box: CourseBox) =>
+    isUE || addedBoxes.some(b => b.boxKey === box.boxKey);
 
   const handleAddUEBox = () => {
     const newBox: CourseBox = {
@@ -42,26 +59,26 @@ export function RequirementBlock({
       programmeId,
       moduleOptions: ueModuleOptions,
     };
-    setUeBoxes((prev) => [...prev, newBox]);
+    addUserBox(programmeId, groupType, newBox);
   };
 
+  // Remove elective
   const handleDeleteUEBox = (boxKey: string) => {
-    setUeBoxes((prev) => prev.filter((box) => box.boxKey !== boxKey));
+    removeUserBox(programmeId, groupType, boxKey);
+    removeBoxModuleSelection(programmeId, groupType, 'UE', boxKey);
   };
 
-  const handleAdd = () => {
-    const nextIndex = addedBoxes.length;
-    if (nextIndex < block.hidden.length) {
-      setAddedBoxes((prev) => [...prev, block.hidden[nextIndex]]);
-    }
+  // Add hidden box
+  const handleAddHidden = (hiddenBox: CourseBox) => {
+    const newBox = { ...hiddenBox, boxKey: `${hiddenBox.boxKey}-${Date.now()}` };
+    addUserBox(programmeId, groupType, newBox);
   };
 
-  const totalBoxes = isUE ? ueBoxes : [...block.courseBoxes, ...addedBoxes];
-
-  const isDeletableBox = (box: CourseBox) => {
-    return isUE || addedBoxes.some(b => b.boxKey === box.boxKey);
+  // Remove hidden
+  const handleDeleteBox = (boxKey: string, pathId: string) => {
+    removeUserBox(programmeId, groupType, boxKey);
+    removeBoxModuleSelection(programmeId, groupType, pathId, boxKey);
   };
-
 
   return (
     <Box mb={4} p={2} border="1px solid #ccc" borderRadius={2}>
@@ -70,21 +87,18 @@ export function RequirementBlock({
       </Typography>
 
       <Box display="flex" flexWrap="wrap" gap={2}>
-        {totalBoxes.map(box => (
+        {visibleBoxes.map(box => (
           <Box
             key={`${block.groupType}-${box.boxKey}`}
-            sx={{
-              position: "relative",
-              display: "inline-block",
-            }}
+            sx={{ position: "relative", display: "inline-block" }}
           >
             <BoxRenderer
               box={box}
               requirementKey={block.groupType}
               sectionPaths={block.paths}
-              sectionBoxes={totalBoxes}
+              sectionBoxes={visibleBoxes}
             />
-            {(isUE || addedBoxes.some(b => b.boxKey === box.boxKey)) && (
+            {isDeletableBox(box) && (
               <IconButton
                 size="small"
                 sx={{
@@ -95,10 +109,11 @@ export function RequirementBlock({
                   bgcolor: 'white',
                   boxShadow: 1,
                 }}
-                onClick={() => {
-                  if (isUE) handleDeleteUEBox(box.boxKey);
-                  else setAddedBoxes(prev => prev.filter(b => b.boxKey !== box.boxKey));
-                }}
+                onClick={() =>
+                  isUE
+                    ? handleDeleteUEBox(box.boxKey)
+                    : handleDeleteBox(box.boxKey, box.pathId)
+                }
               >
                 <DeleteIcon fontSize="small" />
               </IconButton>
@@ -107,8 +122,7 @@ export function RequirementBlock({
         ))}
       </Box>
 
-
-      {/* Add button for UE or normal hidden boxes */}
+      {/* Add elective or hidden requirement buttons */}
       <Box display="flex" justifyContent="flex-end" mt={2}>
         {isUE ? (
           <Button variant="outlined" size="small" onClick={handleAddUEBox}>
@@ -116,8 +130,7 @@ export function RequirementBlock({
           </Button>
         ) : block.hidden.length > 0 ? (
           <Box display="flex" gap={1}>
-            {block.hidden.map((hiddenBox, i) => {
-              // Find title for this hiddenBox
+            {block.hidden.map((hiddenBox) => {
               const pathInfo = block.paths.find((p) => p.pathId === hiddenBox.pathId);
               const boxTitle = pathInfo?.displayLabel || 'Requirement';
               return (
@@ -125,10 +138,7 @@ export function RequirementBlock({
                   key={hiddenBox.boxKey}
                   variant="outlined"
                   size="small"
-                  onClick={() => setAddedBoxes(prev => [
-                    ...prev,
-                    { ...hiddenBox, boxKey: `${hiddenBox.boxKey}-${Date.now()}` }
-                  ])}
+                  onClick={() => handleAddHidden(hiddenBox)}
                 >
                   Add {boxTitle}
                 </Button>
@@ -140,3 +150,5 @@ export function RequirementBlock({
     </Box>
   );
 }
+
+export default RequirementBlock;

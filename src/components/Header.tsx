@@ -3,22 +3,31 @@ import AppBar from "@mui/material/AppBar";
 import Toolbar from "@mui/material/Toolbar";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
+import { useNavigate } from "react-router-dom";
 import { useUIStore } from "../store/useUIStore";
 import logo from "../assets/nusplan-logo.png";
-import LoginPage from "../pages/LoginPage";
 import { supabase } from "../config/supabase";
 
 export default function Header() {
-    const { userLoggedIn } = useUIStore();
+    const { userLoggedIn, setUserLoggedIn } = useUIStore();
+    const navigate = useNavigate();
 
     const handleSignIn = () => {
-        return <LoginPage />;
+        navigate("/login");
     };
 
     const handleSignOut = async () => {
-        async function signOut() {
-            const { error } = await supabase.auth.signOut()
-        }
+        await supabase.auth.signOut();
+        setUserLoggedIn(false);
+        navigate("/login");
+    };
+
+    const handleGoPlanner = () => {
+        navigate("/planner");
+    };
+
+    const handleGoSelect = () => {
+        navigate("/select");
     };
 
     return (
@@ -37,14 +46,45 @@ export default function Header() {
                     px: 3,
                 }}
             >
-                <Box sx={{ display: "flex", alignItems: "center" }}>
+                <Box
+                    sx={{ display: "flex", alignItems: "center", cursor: "pointer" }}
+                    onClick={handleGoSelect}
+                >
                     <img
                         src={logo}
                         alt="NUSPlan Logo"
                         style={{ height: 72 }}
                     />
                 </Box>
-                <Box>
+                <Box sx={{ display: "flex", gap: 2 }}>
+                    <Button
+                        variant="text"
+                        color="primary"
+                        size="medium"
+                        onClick={handleGoSelect}
+                        sx={{
+                            fontWeight: 600,
+                            fontSize: "1.1rem",
+                            px: 4,
+                            py: 1.5,
+                        }}
+                    >
+                        Select Programme
+                    </Button>
+                    <Button
+                        variant="text"
+                        color="primary"
+                        size="medium"
+                        onClick={handleGoPlanner}
+                        sx={{
+                            fontWeight: 600,
+                            fontSize: "1.1rem",
+                            px: 4,
+                            py: 1.5,
+                        }}
+                    >
+                        Planner
+                    </Button>
                     {userLoggedIn ? (
                         <Button
                             variant="text"
