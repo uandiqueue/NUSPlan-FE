@@ -32,7 +32,7 @@ export class FulfilmentTracker {
             const doubleCountModules = this.validator.getDoubleCountModules();
             const allocatedProgrammes = doubleCountModules.get(module) || [];
 
-            console.log(`${action} ${module} (${moduleAU} AU) - allocated to:`, allocatedProgrammes);
+            // console.log(`${action} ${module} (${moduleAU} AU) - allocated to:`, allocatedProgrammes);
 
             if (action === 'ADD') {
                 await this.addModuleToProgress(module, moduleAU, allocatedProgrammes);
@@ -44,7 +44,7 @@ export class FulfilmentTracker {
             await this.calculateProgrammeProgress();
             await this.calculateUEProgress();
             
-            console.log('Progress update completed for', module);
+            // console.log('Progress update completed for', module);
         } catch (error) {
             console.error(`Error updating progress for ${module}:`, error);
         }
@@ -219,7 +219,7 @@ export class FulfilmentTracker {
                 ueAU
             });
             
-            console.log(`Programme ${programme.programmeId} progress: ${totalFulfilled}/${totalRequired} AU`);
+            // console.log(`Programme ${programme.programmeId} progress: ${totalFulfilled}/${totalRequired} AU`);
         }
     }
 
@@ -275,7 +275,7 @@ export class FulfilmentTracker {
             overflow
         };
         
-        console.log(`UE calculation: ${ueFulfilled}/${ueRequired} AU (${autoIncludedModules.length} auto-included modules)`);
+        // console.log(`UE calculation: ${ueFulfilled}/${ueRequired} AU (${autoIncludedModules.length} auto-included modules)`);
     }
 
     /**
@@ -289,7 +289,7 @@ export class FulfilmentTracker {
         for (const module of selectedModules) {
             const leafPaths = this.lookupMaps.moduleToLeafPaths[module] || [];
             const allocatedProgrammes = doubleCountModules.get(module) || [];
-            console.log(`Checking auto-include for ${module} in major ${majorProgramme.programmeId} - allocated to:`, allocatedProgrammes);
+            // console.log(`Checking auto-include for ${module} in major ${majorProgramme.programmeId} - allocated to:`, allocatedProgrammes);
             
             // Check if module is used in major programme
             const isUsedInMajor = leafPaths.some(path => 

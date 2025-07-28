@@ -11,8 +11,8 @@ export function RequirementBlock({
   block,
   programmeId,
 }: {
-  block: ProgrammeSection,
-  programmeId: string,
+  block: ProgrammeSection;
+  programmeId: string;
 }) {
   const isUE = block.groupType === 'unrestrictedElectives';
   const groupType = block.groupType as RequirementGroupType;
@@ -22,34 +22,28 @@ export function RequirementBlock({
     userAddedBoxes,
     addUserBox,
     removeUserBox,
-    removeBoxModuleSelection,
-    userModuleSelections
+    removeModule,
+    userModuleSelections,
   } = usePlannerStore();
 
   const [ueModuleOptions, setUeModuleOptions] = useState<ModuleCode[]>([]);
+
   useEffect(() => {
     if (!lookupMaps) return;
-    async function loadUEOptions() {
-      const allModuleCodes = dbService.extractAllModuleCodes(lookupMaps);
-      setUeModuleOptions(Array.from(allModuleCodes));
-    }
-    loadUEOptions();
+    
+    const allModuleCodes = dbService.extractAllModuleCodes(lookupMaps);
+    setUeModuleOptions(Array.from(allModuleCodes));
   }, [lookupMaps, isUE]);
 
-  // User added boxes for this section
+  // User‑added boxes for this section
   const addedBoxes = userAddedBoxes
-    .filter(b => b.programmeId === programmeId && b.groupType === groupType)
-    .map(b => b.box);
+    .filter((b) => b.programmeId === programmeId && b.groupType === groupType)
+    .map((b) => b.box);
 
-  // Combine default and added boxes
-  const visibleBoxes = [
-    ...block.courseBoxes,
-    ...addedBoxes
-  ];
+  const visibleBoxes = [...block.courseBoxes, ...addedBoxes];
 
-  // Helper function
   const isDeletableBox = (box: CourseBox) =>
-    isUE || addedBoxes.some(b => b.boxKey === box.boxKey);
+    isUE || addedBoxes.some((b) => b.boxKey === box.boxKey);
 
   const handleAddUEBox = () => {
     const newBox: CourseBox = {
@@ -62,22 +56,19 @@ export function RequirementBlock({
     addUserBox(programmeId, groupType, newBox);
   };
 
-  // Remove elective
   const handleDeleteUEBox = (boxKey: string) => {
     removeUserBox(programmeId, groupType, boxKey);
-    removeBoxModuleSelection(programmeId, groupType, 'UE', boxKey);
+    removeModule(programmeId, groupType, 'UE', boxKey);
   };
 
-  // Add hidden box
   const handleAddHidden = (hiddenBox: CourseBox) => {
     const newBox = { ...hiddenBox, boxKey: `${hiddenBox.boxKey}-${Date.now()}` };
     addUserBox(programmeId, groupType, newBox);
   };
 
-  // Remove hidden
   const handleDeleteBox = (boxKey: string, pathId: string) => {
     removeUserBox(programmeId, groupType, boxKey);
-    removeBoxModuleSelection(programmeId, groupType, pathId, boxKey);
+    removeModule(programmeId, groupType, pathId, boxKey);
   };
 
   return (
@@ -87,22 +78,23 @@ export function RequirementBlock({
       </Typography>
 
       <Box display="flex" flexWrap="wrap" gap={2}>
-        {visibleBoxes.map(box => (
+        {visibleBoxes.map((box) => (
           <Box
             key={`${block.groupType}-${box.boxKey}`}
-            sx={{ position: "relative", display: "inline-block" }}
+            sx={{ position: 'relative', display: 'inline-block' }}
           >
             <BoxRenderer
               box={box}
               requirementKey={block.groupType}
               sectionPaths={block.paths}
               sectionBoxes={visibleBoxes}
+              renderedBoxKeys={visibleBoxes.map((b) => b.boxKey)}
             />
             {isDeletableBox(box) && (
               <IconButton
                 size="small"
                 sx={{
-                  position: "relative",
+                  position: 'relative',
                   bottom: 40,
                   left: 220,
                   zIndex: 2,
@@ -122,7 +114,6 @@ export function RequirementBlock({
         ))}
       </Box>
 
-      {/* Add elective or hidden requirement buttons */}
       <Box display="flex" justifyContent="flex-end" mt={2}>
         {isUE ? (
           <Button variant="outlined" size="small" onClick={handleAddUEBox}>
