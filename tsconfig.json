@@ -10,6 +10,7 @@
       "ESNext",
     ],
     "jsx": "react-jsx",
+    "types": ["react", "react-dom"],
     "esModuleInterop": true,
     "strict": true,
     "allowJs": true,

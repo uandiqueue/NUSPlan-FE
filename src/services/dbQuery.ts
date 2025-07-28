@@ -321,19 +321,85 @@ export class FEDatabaseQueryService {
     }
   }
 
-  async getPathId(programmeId: string, rawKey: string): Promise<string | null> {
-    const { data, error } = await supabase
-      .from('programme_requirement_paths')
-      .select('id')
-      .eq('programme_id', programmeId)
-      .eq('path_key', rawKey)
-      .single();
+  /**
+   * Get pathId from pathKey
+   */
+  async getPathIdByKey(programmeId: string, pathKey: string): Promise<string | null> {
+      try {
+          const { data, error } = await supabase
+              .from('programme_requirement_paths')
+              .select('id')
+              .eq('programme_id', programmeId)
+              .eq('path_key', pathKey)
+              .single();
 
-    if (error) {
-      console.error('[getPathId] ', error);
-      return null;
-    }
-    return data?.id ?? null;
+          if (error) {
+              console.error(`Error getting pathId for key ${pathKey}:`, error);
+              return null;
+          }
+          return data?.id || null;
+      } catch (error) {
+          console.error(`Failed to get pathId for key ${pathKey}:`, error);
+          return null;
+      }
+  }
+
+  /**
+   * Get pathKey from pathId
+   */
+  async getPathKeyById(pathId: string): Promise<string | null> {
+      try {
+          const { data, error } = await supabase
+              .from('programme_requirement_paths')
+              .select('path_key')
+              .eq('id', pathId)
+              .single();
+
+          if (error) {
+              console.error(`Error getting pathKey for id ${pathId}:`, error);
+              return null;
+          }
+          return data?.path_key || null;
+      } catch (error) {
+          console.error(`Failed to get pathKey for id ${pathId}:`, error);
+          return null;
+      }
+  }
+
+  /**
+   * Get parent pathIds for a given pathId
+   */
+  async getParentPathIds(pathId: string, programmeId: string): Promise<string[]> {
+      try {
+          // First get the pathKey for this pathId
+          const currentPath = await this.getRequirementPathById(pathId);
+          if (!currentPath || !currentPath.path_key) return [];
+
+          const parentIds: string[] = [];
+          let currentKey = currentPath.parent_path_key;
+
+          // Walk up the hierarchy
+          while (currentKey) {
+              const parentPath = await supabase
+                  .from('programme_requirement_paths')
+                  .select('id, parent_path_key')
+                  .eq('programme_id', programmeId)
+                  .eq('path_key', currentKey)
+                  .single();
+
+              if (parentPath.data) {
+                  parentIds.push(parentPath.data.id);
+                  currentKey = parentPath.data.parent_path_key;
+              } else {
+                  break;
+              }
+          }
+
+          return parentIds;
+      } catch (error) {
+          console.error(`Failed to get parent paths for ${pathId}:`, error);
+          return [];
+      }
   }
 
   // PREREQUISITE QUERIES

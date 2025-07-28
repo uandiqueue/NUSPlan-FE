@@ -450,6 +450,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
       await validator.updateValidationState(module, boxKey, 'ADD');
       await tracker.updateProgress(module, 'ADD');
 
+      set(state => ({
+        progressVersion: state.progressVersion + 1,
+        progressState: { ...state.progressState }
+      }));
+
       get().setBoxModuleSelection(programmeId, groupType, pathId, boxKey, module);
 
       for (const p of prereqBoxes) {
@@ -525,6 +530,11 @@ export const usePlannerStore = create<PlannerState>((set, get) => ({
 
         await validator.updateValidationState(sel.selectedModule, boxKey, 'REMOVE');
         await tracker.updateProgress(sel.selectedModule, 'REMOVE');
+
+        set(state => ({
+          progressVersion: state.progressVersion + 1,
+          progressState: { ...state.progressState }
+        }));
       }
 
       get().removeBoxModuleSelection(programmeId, groupType, pathId, boxKey);

@@ -64,15 +64,32 @@ export class FulfilmentTracker {
             // Only count if this programme is in allocated programmes (for double counting)
             // or if no allocation specified (single count)
             if (allocatedProgrammes.length === 0 || allocatedProgrammes.includes(leafPath.programmeId)) {
-                // Add to leaf path
-                this.addToPath(leafPath.pathId, moduleAU, module);
-
-                // Add to all parent paths
-                await this.addToParentPaths(leafPath.pathId, leafPath.programmeId, moduleAU, module);
+                // Get ALL paths in hierarchy (leaf + all ancestors up to section)
+                const allPathsInHierarchy = await this.getAllPathsInHierarchy(
+                    leafPath.pathId, 
+                    leafPath.programmeId
+                );
+                
+                // Add to all paths in hierarchy
+                for (const pathId of allPathsInHierarchy) {
+                    // Fallback (section might be stored as pathKey)
+                    let resolvedPathId = pathId;
+                    if (resolvedPathId.includes('_')) {
+                        const pathProgrammeId = leafPath.programmeId;
+                        const dbResolvedId = await dbService.getPathIdByKey(pathProgrammeId, resolvedPathId);
+                        if (dbResolvedId) {
+                            resolvedPathId = dbResolvedId;
+                        }
+                    }
+                    this.addToPath(resolvedPathId, moduleAU, module);
+                }
             }
         }
     }
 
+    /**
+     * Remove module from progress tracking
+     */
     private async removeModuleFromProgress(
         module: ModuleCode, 
         moduleAU: number, 
@@ -82,15 +99,32 @@ export class FulfilmentTracker {
         
         for (const leafPath of leafPaths) {
             if (allocatedProgrammes.length === 0 || allocatedProgrammes.includes(leafPath.programmeId)) {
-                // Remove from leaf path
-                this.removeFromPath(leafPath.pathId, moduleAU, module);
-
-                // Remove from all parent paths
-                await this.removeFromParentPaths(leafPath.pathId, leafPath.programmeId, moduleAU, module);
+                // Get ALL paths in hierarchy
+                const allPathsInHierarchy = await this.getAllPathsInHierarchy(
+                    leafPath.pathId, 
+                    leafPath.programmeId
+                );
+                
+                // Remove from all paths in hierarchy
+                for (const pathId of allPathsInHierarchy) {
+                    // Fallback (section might be stored as pathKey)
+                    let resolvedPathId = pathId;
+                    if (resolvedPathId.includes('_')) {
+                        const pathProgrammeId = leafPath.programmeId;
+                        const dbResolvedId = await dbService.getPathIdByKey(pathProgrammeId, resolvedPathId);
+                        if (dbResolvedId) {
+                            resolvedPathId = dbResolvedId;
+                        }
+                    }
+                    this.removeFromPath(resolvedPathId, moduleAU, module);
+                }
             }
         }
     }
 
+    /**
+     * Add module to a specific path and update fulfillment
+     */
     private addToPath(pathId: string, moduleAU: number, module: ModuleCode): void {
         // Update fulfilled AU
         const currentAU = this.progressState.pathFulfillment.get(pathId) || 0;
@@ -104,6 +138,9 @@ export class FulfilmentTracker {
         }
     }
 
+    /**
+     * Remove module from a specific path and update fulfillment
+     */
     private removeFromPath(pathId: string, moduleAU: number, module: ModuleCode): void {
         // Update fulfilled AU
         const currentAU = this.progressState.pathFulfillment.get(pathId) || 0;
@@ -115,52 +152,56 @@ export class FulfilmentTracker {
         this.progressState.pathModules.set(pathId, updatedModules);
     }
 
-    private async addToParentPaths(leafPathId: string, programmeId: string, moduleAU: number, module: ModuleCode): Promise<void> {
-        const parentPaths = this.findParentPaths(leafPathId, programmeId);
-        for (const parentPathId of parentPaths) {
-            this.addToPath(parentPathId, moduleAU, module);
-        }
+    /**
+     * Get all paths (up to section path) in hierarchy for a given pathId
+     */
+    private async getAllPathsInHierarchy(
+        startPathId: string, 
+        programmeId: string
+    ): Promise<string[]> {
+        const allPaths: string[] = [startPathId];
+        const visited = new Set<string>([startPathId]);
+
+        // Get all ancestors recursively
+        const ancestors = await this.findAllAncestors(startPathId, programmeId, visited);
+        allPaths.push(...ancestors);
+        return allPaths;
     }
 
-    private async removeFromParentPaths(leafPathId: string, programmeId: string, moduleAU: number, module: ModuleCode): Promise<void> {
-        const parentPaths = this.findParentPaths(leafPathId, programmeId);
-        for (const parentPathId of parentPaths) {
-            this.removeFromPath(parentPathId, moduleAU, module);
-        }
-    }
-
-    private findParentPaths(pathId: string, programmeId: string): string[] {
-        const parents: string[] = [];
-        const hierarchy = this.lookupMaps.pathHierarchy[programmeId];
-        if (!hierarchy) return parents;
+    /**
+     * Recursive method to find all ancestors
+     */
+    private async findAllAncestors(
+        pathId: string, 
+        programmeId: string,
+        visited: Set<string>
+    ): Promise<string[]> {
+        const ancestors: string[] = [];
+        const hierarchy = this.lookupMaps.pathHierarchy?.[programmeId];
         
-        // Find all ancestors of this path
-        const findAncestors = (currentId: string) => {
-            for (const [parentId, children] of Object.entries(hierarchy)) {
-                if (children.includes(currentId)) {
-                    parents.push(parentId);
-                    findAncestors(parentId); // Recursive call
+        if (hierarchy) {
+            for (const [parentId, childrenIds] of Object.entries(hierarchy)) {
+                if (childrenIds.includes(pathId) && !visited.has(parentId)) {
+                    visited.add(parentId);
+                    ancestors.push(parentId);
+                    const parentAncestors = await this.findAllAncestors(parentId, programmeId, visited);
+                    ancestors.push(...parentAncestors);
                 }
             }
-        };
-        findAncestors(pathId);
-        
-        // Also add the programme-level and section-level paths
-        const programme = this.programmes.find(p => p.programmeId === programmeId);
-        if (programme) {
-            // Add programme-level path
-            parents.push(programmeId);
-            
-            // Add section-level path
-            const leafPath = this.lookupMaps.moduleToLeafPaths[pathId];
-            if (leafPath && leafPath.length > 0) {
-                if (!parents.includes(pathId)) {
-                    parents.push(pathId);
+        } else {
+            // Fallback to database query
+            const parentIds = await dbService.getParentPathIds(pathId, programmeId);
+            for (const parentId of parentIds) {
+                if (!visited.has(parentId)) {
+                    visited.add(parentId);
+                    ancestors.push(parentId);
+                    const parentAncestors = await this.findAllAncestors(parentId, programmeId, visited);
+                    ancestors.push(...parentAncestors);
                 }
             }
         }
         
-        return parents;
+        return ancestors;
     }
 
     /**
@@ -173,34 +214,24 @@ export class FulfilmentTracker {
             let coreAU = 0;
 
             if (isMajor) {
-                // Major shows sum of ALL selected units from ALL programmes
+                // Major shows sum of ALL section paths from ALL programmes
                 for (const anyProgramme of this.programmes) {
-                    for (const section of anyProgramme.sections) {
-                        if (section.groupType !== 'unrestrictedElectives') {
-                            const programmeKey = this.toSnakeCase(anyProgramme.metadata.name);
-                            const programmeType = this.toSnakeCase(anyProgramme.metadata.type);
-                            const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
-                            const sectionId = await dbService.getPathId(anyProgramme.programmeId, sectionKey);
-                            const sectionAU = sectionId ? this.progressState.pathFulfillment.get(sectionId) || 0 : 0;
-                            totalFulfilled += sectionAU;
-                            if (anyProgramme.programmeId === programme.programmeId) {
-                                coreAU += sectionAU;
-                            }
+                    const sectionPathIds = await this.getSectionPathIds(anyProgramme.programmeId);
+                    for (const sectionId of sectionPathIds) {
+                        const sectionAU = this.progressState.pathFulfillment.get(sectionId) || 0;
+                        totalFulfilled += sectionAU;
+                        if (anyProgramme.programmeId === programme.programmeId) {
+                            coreAU += sectionAU;
                         }
                     }
                 }
             } else {
-                // Other programmes show only their own units
-                for (const section of programme.sections) {
-                    if (section.groupType !== 'unrestrictedElectives') {
-                        const programmeKey = this.toSnakeCase(programme.metadata.name);
-                        const programmeType = this.toSnakeCase(programme.metadata.type);
-                        const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
-                        const sectionId = await dbService.getPathId(programme.programmeId, sectionKey);
-                        const sectionAU = sectionId ? this.progressState.pathFulfillment.get(sectionId) || 0 : 0;
-                        totalFulfilled += sectionAU;
-                        coreAU += sectionAU;
-                    }
+                // Other programmes show only their own section paths
+                const sectionPathIds = await this.getSectionPathIds(programme.programmeId);
+                for (const sectionId of sectionPathIds) {
+                    const sectionAU = this.progressState.pathFulfillment.get(sectionId) || 0;
+                    totalFulfilled += sectionAU;
+                    coreAU += sectionAU;
                 }
             }
 
@@ -223,6 +254,32 @@ export class FulfilmentTracker {
         }
     }
 
+    // Helper to get section path IDs (depth 1, no parent)
+    private async getSectionPathIds(programmeId: string): Promise<string[]> {
+        const programme = this.programmes.find(p => p.programmeId === programmeId);
+        if (!programme) return [];
+        
+        const sectionIds: string[] = [];
+        
+        for (const section of programme.sections) {
+            if (section.groupType !== 'unrestrictedElectives') {
+                const sectionPath = section.paths?.find(p => p.depth === 1 && !p.parentPathKey);
+                if (sectionPath) {
+                    sectionIds.push(sectionPath.pathId);
+                } else {
+                    // Fallback to database query
+                    const programmeKey = this.toSnakeCase(programme.metadata.name);
+                    const programmeType = programme.metadata.type;
+                    const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
+                    const sectionId = await dbService.getPathIdByKey(programmeId, sectionKey);
+                    if (sectionId) sectionIds.push(sectionId);
+                }
+            }
+        }
+        
+        return sectionIds;
+    }
+
     /**
      * Dynamically calculate UEs with accurate module AU values
      */
@@ -240,15 +297,11 @@ export class FulfilmentTracker {
 
         // Calculate core fulfilled AU for major programme only
         let majorCoreAU = 0;
-        for (const section of majorProgramme.sections) {
-            if (section.groupType !== 'unrestrictedElectives') {
-                const programmeKey = this.toSnakeCase(majorProgramme.metadata.name);
-                const programmeType = this.toSnakeCase(majorProgramme.metadata.type);
-                const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
-                const sectionId = await dbService.getPathId(majorProgramme.programmeId, sectionKey);
-                const sectionAU = sectionId ? this.progressState.pathFulfillment.get(sectionId) || 0 : 0;
-                majorCoreAU += sectionAU;
-            }
+
+        // Sum section paths for major programme
+        const majorSectionIds = await this.getSectionPathIds(majorProgramme.programmeId);
+        for (const sectionId of majorSectionIds) {
+            majorCoreAU += this.progressState.pathFulfillment.get(sectionId) || 0;
         }
 
         // Calculate UE required
@@ -322,12 +375,8 @@ export class FulfilmentTracker {
 
         // Build nodes for each section
         for (const section of programme.sections) {
-            const programmeKey = this.toSnakeCase(programme.metadata.name);
-            const programmeType = this.toSnakeCase(programme.metadata.type);
-            const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
-            const sectionId = await dbService.getPathId(programme.programmeId, sectionKey);
-            if (sectionId !== null) {
-                const sectionNode = await this.buildSectionNode(section, sectionId, programmeId);
+            if (section.groupType !== 'unrestrictedElectives') {
+                const sectionNode = await this.buildSectionNode(section, programmeId);
                 if (sectionNode) {
                     nodes.push(sectionNode);
                 }
@@ -360,7 +409,33 @@ export class FulfilmentTracker {
         return nodes;
     }
 
-    private async buildSectionNode(section: any, sectionId: string, programmeId: string): Promise<RequirementNode | null> {
+    private async buildSectionNode(
+        section: any, 
+        programmeId: string
+    ): Promise<RequirementNode | null> {
+        // Find section pathId
+        let sectionId: string | null = null;
+        
+        // Check if section has a path with depth 1 and no parent
+        const sectionPath = section.paths?.find((p: any) => p.depth === 1 && !p.parentPathKey);
+        if (sectionPath) {
+            sectionId = sectionPath.pathId;
+        } else {
+            // Fallback to database query
+            const programme = this.programmes.find(p => p.programmeId === programmeId);
+            if (programme) {
+                const programmeKey = this.toSnakeCase(programme.metadata.name);
+                const programmeType = programme.metadata.type;
+                const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
+                sectionId = await dbService.getPathIdByKey(programmeId, sectionKey);
+            }
+        }
+
+        if (!sectionId) {
+            console.warn(`Could not find pathId for section ${section.groupType}`);
+            return null;
+        }
+
         const fulfilledAU = this.progressState.pathFulfillment.get(sectionId) || 0;
         const modules = this.progressState.pathModules.get(sectionId) || [];
 
@@ -466,10 +541,17 @@ export class FulfilmentTracker {
 
         for (const section of programme.sections) {
             if (section.groupType === 'unrestrictedElectives') continue;
-            const programmeKey = this.toSnakeCase(programme.metadata.name);
-            const programmeType = this.toSnakeCase(programme.metadata.type);
-            const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
-            const sectionId = await dbService.getPathId(programme.programmeId, sectionKey);
+            
+            const sectionPath = section.paths?.find((p: any) => p.depth === 1 && !p.parentPathKey);
+            let sectionId = sectionPath?.pathId;
+            
+            if (!sectionId) {
+                const programmeKey = this.toSnakeCase(programme.metadata.name);
+                const programmeType = programme.metadata.type;
+                const sectionKey = `${programmeKey}-${programmeType}-${this.toSnakeCase(section.groupType)}`;
+                sectionId = (await dbService.getPathIdByKey(programme.programmeId, sectionKey)) ?? undefined;
+            }
+            
             const sectionAU = sectionId ? this.progressState.pathFulfillment.get(sectionId) || 0 : 0;
             const sectionModules = sectionId ? this.progressState.pathModules.get(sectionId) || [] : [];
 
