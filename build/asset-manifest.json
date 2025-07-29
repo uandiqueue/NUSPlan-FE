@@ -1,13 +1,13 @@
 {
   "files": {
-    "main.js": "/static/js/main.fc1e0b28.js",
+    "main.js": "/static/js/main.f7aeaff3.js",
     "static/js/48.606858e5.chunk.js": "/static/js/48.606858e5.chunk.js",
     "static/media/nusplan-logo.png": "/static/media/nusplan-logo.82b7a9a7b095840594a7.png",
     "index.html": "/index.html",
-    "main.fc1e0b28.js.map": "/static/js/main.fc1e0b28.js.map",
+    "main.f7aeaff3.js.map": "/static/js/main.f7aeaff3.js.map",
     "48.606858e5.chunk.js.map": "/static/js/48.606858e5.chunk.js.map"
   },
   "entrypoints": [
-    "static/js/main.fc1e0b28.js"
+    "static/js/main.f7aeaff3.js"
   ]
 }
