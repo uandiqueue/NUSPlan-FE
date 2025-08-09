@@ -15,9 +15,6 @@ export class Optimizer {
     this.programmes = programmes;
   }
 
-  /**
-   * Generate module tags with dulling based on validator state
-   */
   async generateModuleTags(module: ModuleCode): Promise<ModuleTag[]> {
     const tags: ModuleTag[] = [];
 
@@ -36,9 +33,6 @@ export class Optimizer {
     return tags;
   }
 
-  /**
-   * Generate R tags showing section path names
-   */
   private async generateRequirementTag(module: ModuleCode): Promise<ModuleTag> {
     const leafPaths = this.lookupMaps.moduleToLeafPaths[module] || [];
     const labels: TagLabel[] = [];
@@ -68,9 +62,6 @@ export class Optimizer {
     };
   }
 
-  /**
-   * Generate D tags showing section-level programme paths
-   */
   private async generateDoubleCountTag(module: ModuleCode): Promise<ModuleTag> {
     const doubleCountInfo = this.lookupMaps.doubleCountEligibility[module];
     if (!doubleCountInfo || doubleCountInfo.maxPossibleDoubleCount === 0) {
@@ -118,17 +109,11 @@ export class Optimizer {
     };
   }
 
-  /**
-   * Check if a module should be disabled in dropdowns
-   */
   isModuleDisabled(module: ModuleCode): boolean {
     const violatingModules = this.validator.getViolatingModules();
     return violatingModules.has(module);
   }
 
-  /**
-   * Create decision dialog for double-count allocation
-   */
   async createDoubleCountDecision(module: ModuleCode, boxKey: string): Promise<PendingDecision | null> {
     const doubleCountInfo = this.lookupMaps.doubleCountEligibility[module];
     if (!doubleCountInfo || doubleCountInfo.maxPossibleDoubleCount === 0) return null;
@@ -177,9 +162,6 @@ export class Optimizer {
     };
   }
 
-  /**
-   * Get box styling based on validation state
-   */
   async getBoxStyling(module: ModuleCode, boxKey: string): Promise<{
     borderColor: string;
     backgroundColor: string;
@@ -199,9 +181,6 @@ export class Optimizer {
     };
   }
 
-  /**
-   * Get dropdown options with proper filtering
-   */
   async getFilteredDropdownOptions(boxOptions: ModuleCode[]): Promise<{
     module: ModuleCode;
     isDisabled: boolean;
@@ -243,9 +222,6 @@ export class Optimizer {
     return results;
   }
 
-  /**
-   * Get warnings for a specific module
-   */
   private async getModuleWarnings(module: ModuleCode): Promise<string[]> {
     const warnings: string[] = [];
     const strippedTags = this.validator.getStrippedTags().get(module) || new Set();
@@ -272,9 +248,6 @@ export class Optimizer {
     return warnings;
   }
 
-  /**
-   * Check if a requirement path is at max capacity
-   */
   private isPathAtMaxCap(pathKey: string): boolean {
     // Extract programme ID and path from pathKey
     const [programmeId, ...pathParts] = pathKey.split(':');
@@ -295,16 +268,10 @@ export class Optimizer {
     return false;
   }
 
-  /**
-   * Get programme by ID
-   */
   private getProgramme(programmeId: string): ProgrammePayload | undefined {
     return this.programmes.find(p => p.programmeId === programmeId);
   }
 
-  /**
-   * Format tag display text based on current state
-   */
   formatTagDisplay(tag: ModuleTag): {
     displayText: string;
     className: string;
@@ -334,9 +301,6 @@ export class Optimizer {
     return { displayText, className, tooltip };
   }
 
-  /**
-   * Get decision dialog styling and content
-   */
   getDecisionDialogContent(decision: PendingDecision): {
     options: Array<{
       id: string;
@@ -364,9 +328,6 @@ export class Optimizer {
     return { options };
   }
 
-  /**
-   * Prettify Helper
-   */
   camelToProperCase(input: string): string {
     return input
       .replace(/([A-Z])/g, ' $1')
@@ -374,9 +335,6 @@ export class Optimizer {
       .replace(/\b\w/g, char => char.toUpperCase());
   }
 
-  /**
-   * Get optimizer cache statistics for debugging
-   */
   getOptimizerStats(): {
     totalProgrammes: number;
     totalModulesInLookup: number;

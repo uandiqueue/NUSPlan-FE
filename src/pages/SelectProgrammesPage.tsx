@@ -24,7 +24,6 @@ import { supabase } from "../config/supabase";
 export default function SelectProgrammesPage() {
   const navigate = useNavigate();
 
-  // STORES
   const {
     primaryMajor,
     secondaryMajor,
@@ -228,7 +227,7 @@ export default function SelectProgrammesPage() {
           />
         )}
 
-        {/* Planner > button, fixed to bottom right */}
+        {/* Planner button, fixed to bottom right */}
         <Box
           position="fixed"
           bottom={24}

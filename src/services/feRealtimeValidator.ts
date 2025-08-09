@@ -35,10 +35,6 @@ export class RealtimeValidator {
         this.initPreselectedMapping();
     }
 
-    /**
-     * Preload module data for all modules in the academic plan
-     * This improves validation performance by caching frequently used module information
-     */
     private async preloadModuleData(): Promise<void> {
         try {
             // Collect all unique modules from lookup maps
@@ -83,9 +79,6 @@ export class RealtimeValidator {
         }
     }
 
-    /**
-     * Main validation entry point called after a module is selected or deselected.
-     */
     async validateSelection(module: ModuleCode, boxKey: string): Promise<ValidationResult> {
         const result: ValidationResult = {
             isValid: true,
@@ -121,11 +114,6 @@ export class RealtimeValidator {
         return result;
     }
 
-    /**
-     * Prerequisite checking logic
-     * 
-     * Rule: Each module may have prerequisites that must be satisfied if it is to be selected.
-     */
     private async checkPrerequisites(module: ModuleCode): Promise<ValidationResult> {
         const result: ValidationResult = {
             isValid: true,
@@ -185,9 +173,6 @@ export class RealtimeValidator {
         return result;
     }
 
-    /**
-     * Process a single prerequisite rule and convert to CourseBox structures
-     */
     private async processPrerequisiteRule(
         rule: PrerequisiteRule,
         ruleMap: Map<string, PrerequisiteRule>,
@@ -199,7 +184,7 @@ export class RealtimeValidator {
     }> {
         switch (rule.rule_type) {
             case 'simple':
-                // 'simple' -> ExactBox
+                // 'simple' = ExactBox
                 if (rule.required_modules && rule.required_modules.length > 0) {
                     const moduleCode = rule.required_modules[0] as ModuleCode;
                     return {
@@ -220,7 +205,7 @@ export class RealtimeValidator {
                 break;
 
             case 'simple_and':
-                // 'simple_and' -> multiple ExactBoxes
+                // 'simple_and' = multiple ExactBoxes
                 if (rule.required_modules) {
                     const boxes: CourseBox[] = rule.required_modules.map(mod => ({
                         kind: 'exact' as const,
@@ -238,7 +223,7 @@ export class RealtimeValidator {
                 break;
 
             case 'simple_or':
-                // 'simple_or' -> DropdownBox
+                // 'simple_or' = DropdownBox
                 if (rule.required_modules && rule.required_modules.length > 0) {
                     return {
                         boxes: [{
@@ -257,7 +242,7 @@ export class RealtimeValidator {
                 break;
 
             case 'n_of':
-                // 'n_of' -> n DropdownBoxes
+                // 'n_of' = n DropdownBoxes
                 if (rule.required_modules && rule.quantity_required) {
                     const boxes: CourseBox[] = [];
                     for (let i = 0; i < rule.quantity_required; i++) {
@@ -277,7 +262,7 @@ export class RealtimeValidator {
                 break;
 
             case 'complex_and':
-                // 'complex_and' -> All children must be fulfilled
+                // 'complex_and' = All children must be fulfilled
                 if (rule.children) {
                     const allChildBoxes: CourseBox[] = [];
                     const childDecisions: DecisionOption[] = [];
@@ -315,7 +300,7 @@ export class RealtimeValidator {
                 break;
 
             case 'complex_or':
-                // 'complex_or' -> Decision required
+                // 'complex_or' = Decision required
                 if (rule.children) {
                     const options: DecisionOption[] = [];
                     
@@ -351,9 +336,6 @@ export class RealtimeValidator {
         return { boxes: [], requiresDecision: false };
     }
 
-    /**
-     * Store prerequisite boxes for the optimizer to render
-     */
     private async storePrerequisiteBoxes(
         module: ModuleCode, 
         boxes: CourseBox[]
@@ -364,9 +346,6 @@ export class RealtimeValidator {
         this.prerequisiteBoxes.set(module, boxes);
     }
 
-    /**
-     * Store prerequisite decisions for UI presentation
-     */
     private async storePrerequisiteDecisions(
         module: ModuleCode,
         options: DecisionOption[]
@@ -385,9 +364,6 @@ export class RealtimeValidator {
         } as PendingDecision);
     }
 
-    /**
-     * Apply prerequisite decision
-     */
     async applyPrerequisiteDecision(
         module: ModuleCode, 
         selectedOptionId: string
@@ -417,9 +393,6 @@ export class RealtimeValidator {
         return processed.boxes;
     }
 
-    /**
-     * Mark prerequisite as fulfilled when selected
-     */
     async markPrerequisiteFulfilled(boxKey: string, selectedModule?: ModuleCode): Promise<void> {
         if (!this.prerequisiteFulfillment) {
             this.prerequisiteFulfillment = new Map();
@@ -434,28 +407,14 @@ export class RealtimeValidator {
         return this.prerequisiteFulfillment?.get(boxKey)?.fulfilled || false;
     }
 
-    /**
-     * Get prerequisite boxes for a module
-     */
     getPrerequisiteBoxes(module: ModuleCode): CourseBox[] | undefined {
         return this.prerequisiteBoxes?.get(module);
     }
 
-    /**
-     * Get prerequisite decisions
-     */
     getPrerequisiteDecisions(module: ModuleCode): PendingDecision | undefined {
         return this.prerequisiteDecisions?.get(module);
     }
 
-    /**
-     * Max Rule Stripping Logic
-     * 
-     * Rule: If a LEAF requirement path has a max cap, once that cap is reached,
-     * all associated modules will have their tags dulled only in that path's context.
-     * The path's context means all the paths that share the same parent pathKey as 
-     * the max rule path will be affected.
-     */
     private async checkMaxRules(module: ModuleCode, boxKey: string): Promise<ValidationResult> {
         const result: ValidationResult = {
             isValid: true,
@@ -498,9 +457,6 @@ export class RealtimeValidator {
         return result;
     }
 
-    /**
-     * Strip tag for a specific path context
-     */
     private stripTagForPath(module: ModuleCode, pathId: string): void {
         if (!this.validationState.strippedTags.has(module)) {
             this.validationState.strippedTags.set(module, new Set());
@@ -508,12 +464,6 @@ export class RealtimeValidator {
         this.validationState.strippedTags.get(module)!.add(pathId);
     }
 
-    /**
-     * Double Count Tracking Logic
-     * 
-     * Rule: Each programme has a defined doubleCountCap. Once reached, no more modules
-     * can double-count into that programme, though they may still count elsewhere.
-     */
     private async checkDoubleCount(module: ModuleCode, boxKey: string): Promise<ValidationResult> {
         const result: ValidationResult = {
             isValid: true,
@@ -570,12 +520,6 @@ export class RealtimeValidator {
         return result;
     }
 
-    /**
-     * Triple Count Violation Logic
-     * 
-     * Rule: A module may fulfill at most 2 requirements, including both
-     * intra- and inter-programme rules.
-     */
     private async checkTripleCountViolation(module: ModuleCode): Promise<ValidationResult> {
         const currentUsage = this.validationState.moduleUsageCount.get(module) || 0;
         if (currentUsage >= 2) {
@@ -598,9 +542,6 @@ export class RealtimeValidator {
         };
     }
 
-    /**
-     * Update validation state after a successful selection
-     */
     async updateValidationState(module: ModuleCode, boxKey: string, action: 'ADD' | 'REMOVE'): Promise<void> {
         if (action === 'ADD') {
             await this.addModuleToValidationState(module, boxKey);
@@ -688,9 +629,6 @@ export class RealtimeValidator {
         }
     }
 
-    /**
-     * Restore tag for a specific path context
-     */
     private restoreTagForPath(module: ModuleCode, pathId: string): void {
         const strippedTags = this.validationState.strippedTags.get(module);
         if (strippedTags) {
@@ -701,9 +639,6 @@ export class RealtimeValidator {
         }
     }
 
-    /**
-     * Apply double count decision from user
-     */
     async applyDoubleCountDecision(module: ModuleCode, selectedProgrammes: string[]): Promise<void> {
         this.validationState.doubleCountModules.set(module, selectedProgrammes);
 
@@ -714,18 +649,10 @@ export class RealtimeValidator {
         }
     }
 
-    // HELPERS
-
-    /**
-     * Get cached prerequisite rule map
-     */
     private getCachedRuleMap(): Map<string, PrerequisiteRule> {
         return this.cachedRuleMap || new Map();
     }
 
-    /**
-     * Get cached prerequisite rule by ID
-     */
     private getCachedRule(ruleId: string): PrerequisiteRule | undefined {
         return this.cachedRuleMap?.get(ruleId);
     }
@@ -766,9 +693,6 @@ export class RealtimeValidator {
         return this.validationState.selectedModules;
     }
 
-    /**
-     * For debugging
-     */
     getValidationStats(): {
         selectedModules: number;
         violatingModules: number;

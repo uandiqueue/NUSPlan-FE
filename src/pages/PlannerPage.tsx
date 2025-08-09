@@ -2,8 +2,9 @@ import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   Box, Button, Typography, Divider,
   useTheme, useMediaQuery,
-  Tabs, Tab, LinearProgress, CircularProgress
+  Tabs, Tab, LinearProgress, CircularProgress, Alert, IconButton
 } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import { RequirementBlock } from '../components/requirementBlock';
 import ProgressGraph from '../components/progressGraph';
 import { usePlannerStore } from '../store/usePlannerStore';
@@ -22,12 +23,21 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
     switchProgramme,
     loadUserPlannerData,
     saveUserPlannerData,
+    warnings
   } = usePlannerStore();
 
   const [user, setUser] = useState<User | null>(null);
   const [saving, setSaving] = useState(false);
   const [isPreloading, setIsPreloading] = useState(false);
   const [preloadError, setPreloadError] = useState<string | null>(null);
+  const [hideWarn, setHideWarn] = useState(false); // control hiding warning banner
+
+  // makes the warning banner appear again whenever the warnings change
+  useEffect(() => {
+    if (warnings.length > 0) {
+      setHideWarn(false);
+    }
+  }, [warnings]);
 
   const theme = useTheme();
   const upLg = useMediaQuery(theme.breakpoints.up('lg'));
@@ -117,6 +127,24 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
         </Button>
       </Box>
 
+      {/* Warning banner */}
+      {!hideWarn && warnings.length > 0 && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 3 }}
+          action={
+            <IconButton size="small" onClick={() => setHideWarn(true)}>
+              <CloseIcon fontSize="inherit" />
+            </IconButton>
+          }
+        >
+          {warnings.map((w, i) => (
+            <div key={i}>{w}</div>
+          ))}
+        </Alert>
+      )}
+
+      {/* Tabs for each selected programme */}
       <Tabs
         value={selectedProgramIndex}
         onChange={(_, v) => switchProgramme(v)}
@@ -131,6 +159,7 @@ export default function PlannerPage({ onBack }: PlannerPageProps) {
         ))}
       </Tabs>
 
+      {/* Main grid layout */}
       <Box display="grid" gap={4} gridTemplateColumns={upLg ? '2fr 1fr' : '1fr'}>
         <Box
           border="1px solid #ccc"

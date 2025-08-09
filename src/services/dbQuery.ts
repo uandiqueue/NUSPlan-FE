@@ -10,10 +10,6 @@ import type {
   PreclusionData
 } from "../types/frontend-types";
 
-/**
- * FEDatabaseQueryService class to handle database queries for FE.
- * It provides methods to fetch prerequisites, preclusions, module, and paths data from Supabase.
- */
 export class FEDatabaseQueryService {
 
   private static instance: FEDatabaseQueryService;
@@ -41,11 +37,6 @@ export class FEDatabaseQueryService {
     modules.forEach(m => this.cache.modules.set(m.module_code as ModuleCode, m));
   }
 
-  /**
-   * Initialize cache after user selects programmes.
-   * 1. Extract all requirement paths using programmeIds
-   * 2. After BE response, extract all moduleCodes from lookup maps and batch fetch everything
-   */
   async initializeCache(
     programmeIds: string[],
     lookupMaps?: LookupMaps
@@ -108,11 +99,6 @@ export class FEDatabaseQueryService {
     }
   }
 
-  // MODULE QUERIES
-
-  /**
-   * Extract all unique module codes from moduleToLeafPaths in lookup.
-   */
   extractAllModuleCodes(lookupMaps: LookupMaps): Set<ModuleCode> {
     const allModuleCodes = new Set<ModuleCode>();
     if (lookupMaps.moduleToLeafPaths) {
@@ -171,9 +157,6 @@ export class FEDatabaseQueryService {
     }
   }
 
-  /**
-   * Batch fetch module modules (no caching)
-   */
   async getModulesDetails(moduleCodes: ModuleCode[]): Promise<ModuleData[]> {
     if (moduleCodes.length === 0) return [];
 
@@ -198,8 +181,6 @@ export class FEDatabaseQueryService {
       return [];
     }
   }
-
-  // PRECLUSION QUERIES
 
   async getModulePreclusions(moduleCode: ModuleCode): Promise<ModuleCode[]> {
     try {
@@ -230,9 +211,6 @@ export class FEDatabaseQueryService {
     }
   }
 
-  /**
-   * Batch fetch preclusion data for multiple modules (no caching)
-   */
   async getBatchPreclusions(moduleCodes: ModuleCode[]): Promise<PreclusionData[]> {
     if (moduleCodes.length === 0) return [];
 
@@ -254,11 +232,6 @@ export class FEDatabaseQueryService {
     }
   }
 
-  // PATH QUERIES
-
-  /**
-   * Get all requirement paths for programmes (no caching)
-   */
   async getRequirementPaths(programmeIds: string[]): Promise<RequirementPathData[]> {
     try {
       const { data, error } = await supabase
@@ -285,9 +258,6 @@ export class FEDatabaseQueryService {
     }
   }
 
-  /**
-   * Fetch requirement path by path id.
-   */
   async getRequirementPathById(pathId: string): Promise<RequirementPathData | null> {
     // Check cache first
     const cached = this.cache.paths.get(pathId);
@@ -321,9 +291,6 @@ export class FEDatabaseQueryService {
     }
   }
 
-  /**
-   * Get pathId from pathKey
-   */
   async getPathIdByKey(programmeId: string, pathKey: string): Promise<string | null> {
       try {
           const { data, error } = await supabase
@@ -344,9 +311,6 @@ export class FEDatabaseQueryService {
       }
   }
 
-  /**
-   * Get pathKey from pathId
-   */
   async getPathKeyById(pathId: string): Promise<string | null> {
       try {
           const { data, error } = await supabase
@@ -366,9 +330,6 @@ export class FEDatabaseQueryService {
       }
   }
 
-  /**
-   * Get parent pathIds for a given pathId
-   */
   async getParentPathIds(pathId: string, programmeId: string): Promise<string[]> {
       try {
           // First get the pathKey for this pathId
@@ -402,11 +363,6 @@ export class FEDatabaseQueryService {
       }
   }
 
-  // PREREQUISITE QUERIES
-
-  /**
-   * Get module prerequisites using RPC function
-   */
   async getModulePrerequisites(moduleCode: ModuleCode): Promise<PrerequisiteRule[]> {
     try {
       // Check cache first
@@ -433,11 +389,6 @@ export class FEDatabaseQueryService {
     }
   }
 
-  // GMC MAPPING QUERIES
-
-  /**
-   * Get GMC mappings for programmes (no caching)
-   */
   async getGMCMappings(programmeIds: string[], gmcCodes?: string[]): Promise<GMCMappingData[]> {
     try {
       let query = supabase
@@ -461,9 +412,6 @@ export class FEDatabaseQueryService {
     }
   }
 
-  /**
-   * Get module codes by GMC using RPC function
-   */
   async getModuleCodeByGMC(gmcCode: string): Promise<ModuleCode[]> {
     try {
       // Check cache first
@@ -491,9 +439,6 @@ export class FEDatabaseQueryService {
     }
   }
 
-  /**
-   * Check if modules exist (for exact GMC validation)
-   */
   async validateModuleCodes(moduleCodes: string[]): Promise<string[]> {
     if (moduleCodes.length === 0) return [];
 

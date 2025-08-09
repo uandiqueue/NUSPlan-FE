@@ -23,9 +23,6 @@ export class FulfilmentTracker {
         
     }
 
-    /**
-     * Update progress when a module is selected/removed
-     */
     async updateProgress(module: ModuleCode, action: 'ADD' | 'REMOVE'): Promise<void> {
         try {
             const moduleAU = await dbService.getModuleAU(module);
@@ -50,9 +47,6 @@ export class FulfilmentTracker {
         }
     }
 
-    /**
-     * Add module to progress tracking
-     */
     private async addModuleToProgress(
         module: ModuleCode, 
         moduleAU: number, 
@@ -87,9 +81,6 @@ export class FulfilmentTracker {
         }
     }
 
-    /**
-     * Remove module from progress tracking
-     */
     private async removeModuleFromProgress(
         module: ModuleCode, 
         moduleAU: number, 
@@ -122,9 +113,6 @@ export class FulfilmentTracker {
         }
     }
 
-    /**
-     * Add module to a specific path and update fulfillment
-     */
     private addToPath(pathId: string, moduleAU: number, module: ModuleCode): void {
         // Update fulfilled AU
         const currentAU = this.progressState.pathFulfillment.get(pathId) || 0;
@@ -138,9 +126,6 @@ export class FulfilmentTracker {
         }
     }
 
-    /**
-     * Remove module from a specific path and update fulfillment
-     */
     private removeFromPath(pathId: string, moduleAU: number, module: ModuleCode): void {
         // Update fulfilled AU
         const currentAU = this.progressState.pathFulfillment.get(pathId) || 0;
@@ -152,9 +137,6 @@ export class FulfilmentTracker {
         this.progressState.pathModules.set(pathId, updatedModules);
     }
 
-    /**
-     * Get all paths (up to section path) in hierarchy for a given pathId
-     */
     private async getAllPathsInHierarchy(
         startPathId: string, 
         programmeId: string
@@ -168,9 +150,6 @@ export class FulfilmentTracker {
         return allPaths;
     }
 
-    /**
-     * Recursive method to find all ancestors
-     */
     private async findAllAncestors(
         pathId: string, 
         programmeId: string,
@@ -204,9 +183,6 @@ export class FulfilmentTracker {
         return ancestors;
     }
 
-    /**
-     * Calculate programme-level progress with accurate module AU values
-     */
     private async calculateProgrammeProgress(): Promise<void> {
         for (const programme of this.programmes) {
             const isMajor = programme.metadata.type === 'major';
@@ -280,9 +256,6 @@ export class FulfilmentTracker {
         return sectionIds;
     }
 
-    /**
-     * Dynamically calculate UEs with accurate module AU values
-     */
     private async calculateUEProgress(): Promise<void> {
         const majorProgramme = this.programmes.find(p => p.metadata.type === 'major');
         if (!majorProgramme) {
@@ -331,9 +304,6 @@ export class FulfilmentTracker {
         // console.log(`UE calculation: ${ueFulfilled}/${ueRequired} AU (${autoIncludedModules.length} auto-included modules)`);
     }
 
-    /**
-     * Find modules that should be auto-included in UE
-     */
     private async findAutoIncludedModules(majorProgramme: ProgrammePayload): Promise<ModuleCode[]> {
         const autoIncluded: ModuleCode[] = [];
         const selectedModules = this.validator.getSelectedModules();
@@ -364,9 +334,6 @@ export class FulfilmentTracker {
         return autoIncluded;
     }
 
-    /**
-     * Build requirement tree for UI rendering with accurate progress calculation
-     */
     async buildRequirementTree(programmeId: string): Promise<RequirementNode[]> {
         const programme = this.programmes.find(p => p.programmeId === programmeId);
         if (!programme) return [];
@@ -502,9 +469,6 @@ export class FulfilmentTracker {
         return 'in_progress';
     }
 
-    /**
-     * Get detailed progress summary with module information
-     */
     async getDetailedProgressSummary(programmeId: string): Promise<{
         totalProgress: { required: number; fulfilled: number; percentage: number };
         sectionBreakdown: Array<{
@@ -607,9 +571,6 @@ export class FulfilmentTracker {
         return this.progressState.ueCalculation;
     }
 
-    /**
-     * Get fulfilment tracker statistics for debugging
-     */
     getTrackerStats(): {
         trackedPaths: number;
         trackedModules: number;
